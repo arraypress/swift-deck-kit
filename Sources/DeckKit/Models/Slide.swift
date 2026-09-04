@@ -61,9 +61,9 @@ public enum Slide: Sendable {
     case agenda(String?)
 
     /// A chart, from a table whose first column is the categories and every
-    /// other column a series. `native` asks for an editable chart object
-    /// even where a drawn one is the default (pies and doughnuts, which
-    /// Quick Look cannot draw).
+    /// other column a series. `native` is the default — an editable chart
+    /// object; `drawn` places a picture instead, which every viewer shows
+    /// alike (Quick Look cannot draw a native pie).
     case chart(String?, kind: ChartKind, rows: [[String]], header: Bool, native: Bool, note: String?)
 
     /// The heading, for a contents listing and for `deck check`.

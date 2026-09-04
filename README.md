@@ -73,12 +73,12 @@ Added after the audit, each measured the same way:
   agrees a series name cannot be a `strLit`. Series colours come from the
   design's own palette (`chartColours`; the modern designs name six, other
   designs turn the accent round the hue wheel, softened), text names the
-  body face, gridlines composite over the ground. **Pies and doughnuts are
-  drawn** (`ChartImage`, CoreGraphics) and placed as pictures, because
-  Quick Look renders a native pie as one undivided circle whatever the file
-  says — measured with per-slice colours, theme accents and data labels,
-  none honoured; `[chart pie native]` writes the editable object for a
-  PowerPoint audience. **Charts sit on a card** whose rectangle is the
+  body face, gridlines composite over the ground. Every chart is native and
+  editable by default. Quick Look renders a native pie as one undivided
+  circle whatever the file says — measured with per-slice colours, theme
+  accents and data labels, none honoured — so `[chart pie drawn]` places a
+  picture instead (`ChartImage`, CoreGraphics), the same in every viewer,
+  for a deck that will only ever be previewed. **Charts sit on a card** whose rectangle is the
   chart's own: Quick Look draws a hairline frame round every chart that
   nothing in the file switches off, and coincident with the card's edge it
   reads as the border.

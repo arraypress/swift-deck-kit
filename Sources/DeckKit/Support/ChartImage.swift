@@ -15,8 +15,8 @@ import ImageIO
 /// Quick Look renders a native pie as one undivided circle in one colour,
 /// whatever the file says about its slices — measured with per-point
 /// colours, theme accents and data labels, none of which it honoured. A
-/// picture is the same in every viewer. `[chart pie native]` still writes
-/// the editable object for a PowerPoint audience.
+/// picture is the same in every viewer; `[chart pie drawn]` asks for one.
+/// The default stays native, because editable is the point of a `.pptx`.
 enum ChartImage {
 
     /// Slices from the first series, at `scale` pixels per point of the

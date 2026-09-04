@@ -540,7 +540,7 @@ final class ChartTests: XCTestCase {
         let deck = Markdown.deck(from: "## Sales\n[chart pie]\n| A | B |\n|---|---|\n| x | 1 |\n\n## Plain\n| A | B |\n|---|---|\n| x | 1 |\n")
         XCTAssertEqual(deck.slides.map(\.kind), ["chart", "table"])
         guard case let .chart(_, kind, _, header, native, _) = deck.slides[0] else { return XCTFail() }
-        XCTAssertFalse(native)
+        XCTAssertTrue(native, "editable is the default")
         XCTAssertEqual(kind, .pie)
         XCTAssertTrue(header)
         XCTAssertEqual(ChartKind(word: "donut"), .doughnut)
@@ -588,16 +588,20 @@ final class ChartTests: XCTestCase {
         XCTAssertTrue(pie.contains("<c:showPercent val=\"1\"/>"))
     }
 
-    func testAPieIsDrawnUnlessAskedForNative() throws {
-        // Quick Look draws a native pie as one circle in one colour.
+    func testAPieIsDrawnOnlyWhenAsked() throws {
+        // Quick Look draws a native pie as one circle in one colour; the
+        // author chooses a picture with `drawn`, and editable stays default.
         let drawn = String(decoding: try PPTX.data(deck: Deck(slides: [.chart("P", kind: .pie, rows: rows, header: true, native: false, note: nil)]), design: try Designs.named("aurora")), as: UTF8.self)
         XCTAssertFalse(drawn.contains("<c:pieChart>"))
         XCTAssertFalse(drawn.contains("ppt/charts/"))
         XCTAssertTrue(drawn.contains("<p:pic>"), "placed as a picture")
         XCTAssertTrue(drawn.contains("ppt/media/image1.png"))
-        let native = Markdown.deck(from: "## P\n[chart pie native]\n| a | b |\n|---|---|\n| x | 1 |\n").slides[0]
+        let native = Markdown.deck(from: "## P\n[chart pie]\n| a | b |\n|---|---|\n| x | 1 |\n").slides[0]
         guard case let .chart(_, _, _, _, isNative, _) = native else { return XCTFail() }
         XCTAssertTrue(isNative)
+        let picture = Markdown.deck(from: "## P\n[chart pie drawn]\n| a | b |\n|---|---|\n| x | 1 |\n").slides[0]
+        guard case let .chart(_, _, _, _, isDrawn, _) = picture else { return XCTFail() }
+        XCTAssertFalse(isDrawn)
         let image = ChartImage.pie(Charts.Data(rows: rows, header: true), doughnut: true, design: .fallback, width: 800, height: 400)
         XCTAssertNotNil(image)
         XCTAssertEqual(ImageSize.of(image!)?.width, 1600, "drawn at two pixels per point")

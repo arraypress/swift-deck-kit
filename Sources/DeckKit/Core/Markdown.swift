@@ -22,7 +22,7 @@ import Foundation
 /// ??? presenter notes
 /// ^ a kicker, above a heading
 /// [agenda]              the sections, listed
-/// [chart bar]           the table below it, as a chart
+/// [chart bar]           the table below it, as a chart (`drawn` for a picture)
 /// logo: mark.png        footer: Acme · 2026
 /// transition: fade      build: yes
 /// ---
@@ -250,7 +250,7 @@ public enum Markdown {
         var notes: [String] = []
         var agenda = false
         var chart: ChartKind?
-        var nativeChart = false
+        var nativeChart = true
 
         for raw in block {
             let line = raw.trimmingCharacters(in: .whitespaces)
@@ -280,7 +280,10 @@ public enum Markdown {
                 case "agenda": agenda = true
                 default:
                     chart = words.dropFirst().first.flatMap(ChartKind.init(word:)) ?? .column
-                    nativeChart = words.dropFirst().map { $0.lowercased() }.contains("native")
+                    /// Native — editable — unless the author writes `drawn`,
+                    /// which places a picture that every viewer shows alike.
+                    let options = words.dropFirst().map { $0.lowercased() }
+                    nativeChart = !(options.contains("drawn") || options.contains("picture"))
                 }
             } else if line.hasPrefix(">") {
                 quote.append(line.dropFirst().trimmingCharacters(in: .whitespaces))
