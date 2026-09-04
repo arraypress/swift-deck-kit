@@ -175,7 +175,7 @@ final class LayoutTests: XCTestCase {
     func testNothingIsPlacedOutsideTheSlide() {
         let canvas = Canvas.sixteenByNine
         let slides: [Slide] = [
-            .title("T", subtitle: "s"), .section("S", note: nil),
+            .title("T", subtitle: "s"), .section("S", subtitle: nil, note: nil),
             .points("P", items: ["a", "b"], note: nil), .prose("R", body: "text", note: nil),
             .statement("Big", attribution: "who"), .quote("Q", attribution: "who"),
             .columns("C", left: ["a"], right: ["b"], note: nil),
@@ -303,7 +303,7 @@ final class ModernGrammarTests: XCTestCase {
 
     func testAnEqualsLineMakesAStat() {
         let deck = Markdown.deck(from: "## Numbers\n= 91 | tools installed\n= 0 | keys required")
-        guard case let .stat(heading, figures) = deck.slides[0] else {
+        guard case let .stat(heading, figures, _) = deck.slides[0] else {
             return XCTFail("got \(deck.slides[0].kind)")
         }
         XCTAssertEqual(heading, "Numbers")
@@ -313,14 +313,14 @@ final class ModernGrammarTests: XCTestCase {
 
     func testAStatWithNoLabelIsStillAStat() {
         let deck = Markdown.deck(from: "= 91")
-        guard case let .stat(_, figures) = deck.slides[0] else { return XCTFail() }
+        guard case let .stat(_, figures, _) = deck.slides[0] else { return XCTFail() }
         XCTAssertEqual(figures[0].figure, "91")
         XCTAssertEqual(figures[0].label, "")
     }
 
     func testADoubleColonMakesACard() {
         let deck = Markdown.deck(from: "## Promises\n:: Keyless | nothing to sign up for\n:: Local | nothing leaves")
-        guard case let .cards(_, panels) = deck.slides[0] else {
+        guard case let .cards(_, panels, _) = deck.slides[0] else {
             return XCTFail("got \(deck.slides[0].kind)")
         }
         XCTAssertEqual(panels.map(\.title), ["Keyless", "Local"])
@@ -403,7 +403,7 @@ final class ModernOutputTests: XCTestCase {
 
     func testACardIsRoundedTranslucentAndShadowed() throws {
         let design = try Designs.named("aurora")
-        let deck = Deck(slides: [.stat("N", figures: [(figure: "91", label: "tools")])])
+        let deck = Deck(slides: [.stat("N", figures: [(figure: "91", label: "tools")], note: nil)])
         let text = String(decoding: try PPTX.data(deck: deck, design: design), as: UTF8.self)
         XCTAssertTrue(text.contains("prst=\"roundRect\""))
         XCTAssertTrue(text.contains("<a:alpha val="))
@@ -616,7 +616,7 @@ final class SlideNumberTests: XCTestCase {
         // A number on a section divider looks like a mistake.
         let layout = Layout(design: design(numbers: true))
         XCTAssertNil(layout.slideNumber(for: .title("T", subtitle: nil)))
-        XCTAssertNil(layout.slideNumber(for: .section("S", note: nil)))
+        XCTAssertNil(layout.slideNumber(for: .section("S", subtitle: nil, note: nil)))
         XCTAssertNotNil(layout.slideNumber(for: .points("H", items: ["a"], note: nil)))
     }
 
@@ -632,11 +632,11 @@ final class LayoutPartTests: XCTestCase {
 
     func testEverySlideShapeMapsToALayoutThatExists() {
         let shapes: [Slide] = [
-            .title("T", subtitle: nil), .section("S", note: nil),
+            .title("T", subtitle: nil), .section("S", subtitle: nil, note: nil),
             .points("P", items: ["a"], note: nil), .prose("R", body: "b", note: nil),
             .statement("S", attribution: nil), .quote("Q", attribution: nil),
-            .stat(nil, figures: [(figure: "1", label: "x")]),
-            .cards(nil, panels: [(title: "T", body: "b")]),
+            .stat(nil, figures: [(figure: "1", label: "x")], note: nil),
+            .cards(nil, panels: [(title: "T", body: "b")], note: nil),
             .table(nil, rows: [["a"]], header: false),
             .columns("C", left: ["a"], right: ["b"], note: nil),
         ]
@@ -703,5 +703,54 @@ final class EmbeddingTests: XCTestCase {
 
     func testNoFontMeansNoList() {
         XCTAssertTrue(PPTX.embeddedFontList([], typeface: "Inter", firstRelation: 6).isEmpty)
+    }
+}
+
+final class NoteOwnershipTests: XCTestCase {
+
+    func testASectionsSubtitleIsNotAlsoItsNote() {
+        // They were one field, so the line under a section heading was shown
+        // on the slide AND written into the presenter view — and a real
+        // `???` note on a section was impossible to write.
+        let deck = Markdown.deck(from: """
+            # First
+
+            # How a tool gets built
+            Probe first, measure second
+            ??? the actual note
+            """)
+        guard case let .section(_, subtitle, note) = deck.slides[1] else {
+            return XCTFail("got \(deck.slides[1].kind)")
+        }
+        XCTAssertEqual(subtitle, "Probe first, measure second")
+        XCTAssertEqual(note, "the actual note")
+    }
+
+    func testAStatSlideKeepsItsNote() {
+        // Parsed and then dropped: `Slide.note` had no case for stat or
+        // cards, so a `???` under either vanished without a word.
+        let deck = Markdown.deck(from: "## Numbers\n= 91 | tools\n??? say it runs offline")
+        XCTAssertEqual(deck.slides[0].note, "say it runs offline")
+    }
+
+    func testACardSlideKeepsItsNote() {
+        let deck = Markdown.deck(from: "## Promises\n:: Keyless | none needed\n??? mention the tap")
+        XCTAssertEqual(deck.slides[0].note, "mention the tap")
+    }
+
+    func testEveryShapeThatCanCarryANoteWritesOne() throws {
+        let shapes: [Slide] = [
+            .section("S", subtitle: nil, note: "n"),
+            .points("P", items: ["a"], note: "n"),
+            .prose("R", body: "b", note: "n"),
+            .columns("C", left: ["a"], right: ["b"], note: "n"),
+            .stat("N", figures: [(figure: "1", label: "x")], note: "n"),
+            .cards("C", panels: [(title: "t", body: "b")], note: "n"),
+        ]
+        for shape in shapes {
+            let text = String(decoding: try PPTX.data(deck: Deck(slides: [shape]), design: .fallback),
+                              as: UTF8.self)
+            XCTAssertTrue(text.contains("notesSlide1.xml"), "\(shape.kind) lost its note")
+        }
     }
 }

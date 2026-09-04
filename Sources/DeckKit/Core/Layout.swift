@@ -151,8 +151,8 @@ public struct Layout: Sendable {
         case let .title(text, subtitle):
             return feature(text, size: design.titleSize, secondary: subtitle, isTitleSlide: true)
 
-        case let .section(text, note):
-            return feature(text, size: design.sectionSize, secondary: note)
+        case let .section(text, subtitle, _):
+            return feature(text, size: design.sectionSize, secondary: subtitle)
 
         case let .points(heading, items, _):
             let head = ordinary + self.heading(heading)
@@ -225,7 +225,7 @@ public struct Layout: Sendable {
             }
             return boxes
 
-        case let .stat(heading, figures):
+        case let .stat(heading, figures, _):
             /// Figures on cards when the design has one, bare when it does
             /// not — a stat slide is the one place a deck can be loud, and a
             /// number set small is a number nobody remembers.
@@ -260,7 +260,7 @@ public struct Layout: Sendable {
             }
             return boxes
 
-        case let .cards(heading, panels):
+        case let .cards(heading, panels, _):
             let head = ordinary + (heading.map(self.heading) ?? [])
             let bottom = canvas.down(0.86)
             let available = bottom - (heading == nil ? canvas.down(0.2) : bodyTop)

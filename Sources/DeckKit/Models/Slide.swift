@@ -16,7 +16,12 @@ public enum Slide: Sendable {
     case title(String, subtitle: String?)
 
     /// A divider announcing what follows.
-    case section(String, note: String?)
+    ///
+    /// `subtitle` is the line under the heading, on the slide. `note` is for
+    /// the presenter only — they were one field, so a section's subtitle was
+    /// shown AND written into the speaker notes, and a `???` note on a
+    /// section was impossible to write.
+    case section(String, subtitle: String?, note: String?)
 
     /// A heading and some points.
     case points(String, items: [Bullet], note: String?)
@@ -37,10 +42,10 @@ public enum Slide: Sendable {
     case columns(String, left: [Bullet], right: [Bullet], note: String?)
 
     /// Figures with labels, set large. The shape a number deserves.
-    case stat(String?, figures: [(figure: String, label: String)])
+    case stat(String?, figures: [(figure: String, label: String)], note: String?)
 
     /// Panels side by side, each with a title and a line.
-    case cards(String?, panels: [(title: String, body: String)])
+    case cards(String?, panels: [(title: String, body: String)], note: String?)
 
     /// Rows and columns. The first row is the header when there was one.
     case table(String?, rows: [[String]], header: Bool)
@@ -48,12 +53,13 @@ public enum Slide: Sendable {
     /// The heading, for a contents listing and for `deck check`.
     public var heading: String? {
         switch self {
-        case let .title(text, _), let .section(text, _), let .points(text, _, _),
+        case let .title(text, _), let .points(text, _, _),
              let .prose(text, _, _): return text
+        case let .section(text, _, _): return text
         case let .statement(text, _), let .quote(text, _): return text
         case let .image(_, _, heading): return heading
         case let .columns(text, _, _, _): return text
-        case let .stat(text, _), let .cards(text, _): return text
+        case let .stat(text, _, _), let .cards(text, _, _): return text
         case let .table(text, _, _): return text
         }
     }
@@ -79,15 +85,15 @@ public enum Slide: Sendable {
     public var texts: [String] {
         switch self {
         case let .title(a, b): return [a] + [b].compactMap { $0 }
-        case let .section(a, b): return [a] + [b].compactMap { $0 }
+        case let .section(a, b, _): return [a] + [b].compactMap { $0 }
         case let .points(a, items, _): return [a] + items.map(\.text)
         case let .prose(a, body, _): return [a, body]
         case let .statement(a, b), let .quote(a, b): return [a] + [b].compactMap { $0 }
         case let .image(_, caption, heading): return [caption, heading].compactMap { $0 }
         case let .columns(a, left, right, _): return [a] + (left + right).map(\.text)
-        case let .stat(a, figures):
+        case let .stat(a, figures, _):
             return [a].compactMap { $0 } + figures.flatMap { [$0.figure, $0.label] }
-        case let .cards(a, panels):
+        case let .cards(a, panels, _):
             return [a].compactMap { $0 } + panels.flatMap { [$0.title, $0.body] }
         case let .table(a, rows, _):
             return [a].compactMap { $0 } + rows.flatMap { $0 }
@@ -97,8 +103,14 @@ public enum Slide: Sendable {
     /// Presenter notes, when the author wrote any.
     public var note: String? {
         switch self {
-        case let .section(_, note), let .points(_, _, note),
-             let .prose(_, _, note), let .columns(_, _, _, note): return note
+        case let .points(_, _, note), let .prose(_, _, note),
+             let .columns(_, _, _, note): return note
+        /// Every shape that can carry one. They were missing here, so a
+        /// `???` written under a stat or a card block was parsed and then
+        /// silently dropped — the same bug as notes never being written at
+        /// all, one level in.
+        case let .section(_, _, note), let .stat(_, _, note), let .cards(_, _, note):
+            return note
         default: return nil
         }
     }

@@ -242,8 +242,8 @@ public enum Markdown {
         /// own right, and checking after it meant `= 91` on a line by itself
         /// produced no slide at all.
         if !tableRows.isEmpty { return .table(heading, rows: tableRows, header: tableHasHeader) }
-        if !figures.isEmpty { return .stat(heading, figures: figures) }
-        if !panels.isEmpty { return .cards(heading, panels: panels) }
+        if !figures.isEmpty { return .stat(heading, figures: figures, note: note) }
+        if !panels.isEmpty { return .cards(heading, panels: panels, note: note) }
 
         guard let heading else {
             /// A block of prose with no heading at all is still worth a
@@ -262,11 +262,11 @@ public enum Markdown {
             /// top of a document.
             return isFirst
                 ? .title(heading, subtitle: prose.first)
-                : .section(heading, note: prose.first ?? note)
+                : .section(heading, subtitle: prose.first, note: note)
         }
         if !prose.isEmpty {
             return .prose(heading, body: prose.joined(separator: " "), note: note)
         }
-        return .section(heading, note: note)
+        return .section(heading, subtitle: nil, note: note)
     }
 }
