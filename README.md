@@ -232,7 +232,7 @@ they differed, it reported a problem the layout did not have.
 
 ## Tested
 
-112 tests: the grammar keeping every word, a quote's attribution staying with
+111 tests: the grammar keeping every word, a quote's attribution staying with
 its quote, a picture keeping the heading above it, the heading landing in the
 same place on every slide shape, nothing placed outside the canvas, the same
 deck writing byte-identical output, and `&`/`<` escaped while typographic
