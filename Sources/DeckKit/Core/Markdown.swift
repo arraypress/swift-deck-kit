@@ -250,6 +250,7 @@ public enum Markdown {
         var notes: [String] = []
         var agenda = false
         var chart: ChartKind?
+        var nativeChart = false
 
         for raw in block {
             let line = raw.trimmingCharacters(in: .whitespaces)
@@ -277,7 +278,9 @@ public enum Markdown {
             } else if let words = bracketed(line) {
                 switch words[0].lowercased() {
                 case "agenda": agenda = true
-                default: chart = words.dropFirst().first.flatMap(ChartKind.init(word:)) ?? .column
+                default:
+                    chart = words.dropFirst().first.flatMap(ChartKind.init(word:)) ?? .column
+                    nativeChart = words.dropFirst().map { $0.lowercased() }.contains("native")
                 }
             } else if line.hasPrefix(">") {
                 quote.append(line.dropFirst().trimmingCharacters(in: .whitespaces))
@@ -350,7 +353,8 @@ public enum Markdown {
         /// own right, and checking after it meant `= 91` on a line by itself
         /// produced no slide at all.
         if let chart, !tableRows.isEmpty {
-            return .chart(heading, kind: chart, rows: tableRows, header: tableHasHeader, note: note)
+            return .chart(heading, kind: chart, rows: tableRows, header: tableHasHeader,
+                          native: nativeChart, note: note)
         }
         if !tableRows.isEmpty { return .table(heading, rows: tableRows, header: tableHasHeader) }
         if !figures.isEmpty { return .stat(heading, figures: figures, note: note) }

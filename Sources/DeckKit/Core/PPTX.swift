@@ -30,13 +30,33 @@ public enum PPTX {
 
         guard !deck.slides.isEmpty else { throw DeckError.empty }
         let layout = Layout(design: design, canvas: canvas)
-        let sizes = images.compactMapValues(ImageSize.of)
+        var sizes = images.compactMapValues(ImageSize.of)
         /// Supplied by a caller rendering one slide of a larger deck, so
         /// the copy still knows the deck's sections and furniture.
         let contexts = contexts ?? deck.slides.indices.map { deck.context(for: $0, imageSizes: sizes) }
-        let allBoxes = deck.slides.enumerated().map { offset, slide in
+        var allBoxes = deck.slides.enumerated().map { offset, slide in
             layout.boxes(for: slide, context: contexts[offset])
                 + [layout.slideNumber(for: slide, number: firstSlideNumber + offset)].compactMap { $0 }
+        }
+        /// Pies and doughnuts are drawn and placed as pictures unless the
+        /// author asked for `native`: Quick Look draws a native pie as one
+        /// circle in one colour. The drawing happens here, once, and the box
+        /// becomes a picture box like any other.
+        var drawn: [(key: String, data: Data)] = []
+        for (slideIndex, boxes) in allBoxes.enumerated() {
+            for (boxIndex, box) in boxes.enumerated() {
+                guard case let .chart(kind, rows, header, native) = box.content, !native,
+                      kind == .pie || kind == .doughnut else { continue }
+                let key = "chart#\(slideIndex)#\(boxIndex)"
+                let width = Int(Double(box.width) / Canvas.perInch * 96)
+                let height = Int(Double(box.height) / Canvas.perInch * 96)
+                guard let png = ChartImage.pie(Charts.Data(rows: rows, header: header), doughnut: kind == .doughnut,
+                                               design: design, width: width, height: height) else { continue }
+                drawn.append((key: key, data: png))
+                sizes[key] = ImageSize.of(png)
+                allBoxes[slideIndex][boxIndex] = Box(x: box.x, y: box.y, width: box.width, height: box.height,
+                                                     content: .picture(key, fit: .contain))
+            }
         }
 
         /// Which slides carry a note, 1-based. Only those get a notes part;
@@ -57,6 +77,12 @@ public enum PPTX {
             let name = "image\(index).\(((path as NSString).pathExtension).lowercased())"
             media[path] = name
             mediaEntries.append(Zip.Entry(name: "ppt/media/\(name)", data: data))
+        }
+        for picture in drawn {
+            index += 1
+            let name = "image\(index).png"
+            media[picture.key] = name
+            mediaEntries.append(Zip.Entry(name: "ppt/media/\(name)", data: picture.data))
         }
         /// A cover's photograph is carried a second time, darkened in its
         /// pixels — a translucent shape over it would leak in Quick Look.
@@ -96,7 +122,7 @@ public enum PPTX {
             var chartRels: [(rel: String, number: Int)] = []
             let ground = groundColour(of: boxes, canvas: canvas, design: design)
             for box in boxes {
-                guard case let .chart(kind, rows, header) = box.content else { continue }
+                guard case let .chart(kind, rows, header, _) = box.content else { continue }
                 chartCount += 1
                 let rel = "rId\(pictures.count + linkRels.count + 2 + chartRels.count)"
                 chartRels.append((rel: rel, number: chartCount))
@@ -765,9 +791,7 @@ public enum PPTX {
         <a:themeElements><a:clrScheme name="\(escape(design.name))">\
         <a:dk1><a:srgbClr val="\(design.heading)"/></a:dk1><a:lt1><a:srgbClr val="\(design.background)"/></a:lt1>\
         <a:dk2><a:srgbClr val="\(design.body)"/></a:dk2><a:lt2><a:srgbClr val="\(design.featureBody)"/></a:lt2>\
-        <a:accent1><a:srgbClr val="\(design.accent)"/></a:accent1><a:accent2><a:srgbClr val="\(design.accent)"/></a:accent2>\
-        <a:accent3><a:srgbClr val="\(design.accent)"/></a:accent3><a:accent4><a:srgbClr val="\(design.accent)"/></a:accent4>\
-        <a:accent5><a:srgbClr val="\(design.accent)"/></a:accent5><a:accent6><a:srgbClr val="\(design.accent)"/></a:accent6>\
+        \((1...6).map { "<a:accent\($0)><a:srgbClr val=\"\(design.chartPalette[($0 - 1) % design.chartPalette.count])\"/></a:accent\($0)>" }.joined())\
         <a:hlink><a:srgbClr val="\(design.accent)"/></a:hlink><a:folHlink><a:srgbClr val="\(design.accent)"/></a:folHlink>\
         </a:clrScheme><a:fontScheme name="\(escape(design.name))">\
         <a:majorFont><a:latin typeface="\(escape(design.headingFont))"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>\

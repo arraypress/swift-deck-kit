@@ -39,7 +39,7 @@ enum Colour {
 
     /// `hex` with its hue turned by `degrees`, saturation and brightness
     /// kept — how a chart gets distinct series colours from one accent.
-    static func rotate(_ hex: String, by degrees: Double) -> String {
+    static func rotate(_ hex: String, by degrees: Double, saturation scale: Double = 1) -> String {
         guard let c = rgb(hex) else { return hex }
         let r = Double(c.r) / 255, g = Double(c.g) / 255, b = Double(c.b) / 255
         let high = max(r, g, b), low = min(r, g, b), delta = high - low
@@ -51,7 +51,7 @@ enum Colour {
             hue *= 60
             if hue < 0 { hue += 360 }
         }
-        let saturation = high == 0 ? 0 : delta / high
+        let saturation = (high == 0 ? 0 : delta / high) * scale
         hue = (hue + degrees).truncatingRemainder(dividingBy: 360)
         if hue < 0 { hue += 360 }
         let x = high * saturation * (1 - abs((hue / 60).truncatingRemainder(dividingBy: 2) - 1))

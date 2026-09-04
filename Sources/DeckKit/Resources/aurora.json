@@ -67,5 +67,13 @@
     "borderWidth": 0,
     "radius": 0,
     "shadow": false
-  }
+  },
+  "chartColours": [
+    "7C6BF6",
+    "38BDF8",
+    "FBBF24",
+    "F472B6",
+    "34D399",
+    "A78BFA"
+  ]
 }

@@ -539,7 +539,8 @@ final class ChartTests: XCTestCase {
     func testATableUnderAChartMarkerIsAChart() {
         let deck = Markdown.deck(from: "## Sales\n[chart pie]\n| A | B |\n|---|---|\n| x | 1 |\n\n## Plain\n| A | B |\n|---|---|\n| x | 1 |\n")
         XCTAssertEqual(deck.slides.map(\.kind), ["chart", "table"])
-        guard case let .chart(_, kind, _, header, _) = deck.slides[0] else { return XCTFail() }
+        guard case let .chart(_, kind, _, header, native, _) = deck.slides[0] else { return XCTFail() }
+        XCTAssertFalse(native)
         XCTAssertEqual(kind, .pie)
         XCTAssertTrue(header)
         XCTAssertEqual(ChartKind(word: "donut"), .doughnut)
@@ -560,7 +561,7 @@ final class ChartTests: XCTestCase {
     func testTheChartPartIsWrittenTheWayPowerPointWritesOne() throws {
         // Cached references into a sheet, not literals: Quick Look left a
         // literal-data chart blank, and a series name cannot be a strLit.
-        let deck = Deck(slides: [.chart("S", kind: .column, rows: rows, header: true, note: nil)])
+        let deck = Deck(slides: [.chart("S", kind: .column, rows: rows, header: true, native: false, note: nil)])
         let bytes = try PPTX.data(deck: deck, design: try Designs.named("aurora"))
         let text = String(decoding: bytes, as: UTF8.self)
         XCTAssertTrue(text.contains("ppt/charts/chart1.xml"))
@@ -576,15 +577,39 @@ final class ChartTests: XCTestCase {
 
     func testEveryKindWritesItsOwnPlot() throws {
         for kind in ChartKind.allCases {
-            let deck = Deck(slides: [.chart(nil, kind: kind, rows: rows, header: true, note: nil)])
+            let deck = Deck(slides: [.chart(nil, kind: kind, rows: rows, header: true, native: true, note: nil)])
             let text = String(decoding: try PPTX.data(deck: deck, design: .fallback), as: UTF8.self)
             let element = ["bar": "barChart", "column": "barChart", "line": "lineChart",
                            "pie": "pieChart", "doughnut": "doughnutChart", "area": "areaChart"][kind.rawValue]!
             XCTAssertTrue(text.contains("<c:\(element)>"), kind.rawValue)
         }
-        let pie = String(decoding: try PPTX.data(deck: Deck(slides: [.chart(nil, kind: .pie, rows: rows, header: true, note: nil)]), design: .fallback), as: UTF8.self)
+        let pie = String(decoding: try PPTX.data(deck: Deck(slides: [.chart(nil, kind: .pie, rows: rows, header: true, native: true, note: nil)]), design: .fallback), as: UTF8.self)
         XCTAssertEqual(pie.components(separatedBy: "<c:dPt>").count - 1, 2, "one colour per slice")
         XCTAssertTrue(pie.contains("<c:showPercent val=\"1\"/>"))
+    }
+
+    func testAPieIsDrawnUnlessAskedForNative() throws {
+        // Quick Look draws a native pie as one circle in one colour.
+        let drawn = String(decoding: try PPTX.data(deck: Deck(slides: [.chart("P", kind: .pie, rows: rows, header: true, native: false, note: nil)]), design: try Designs.named("aurora")), as: UTF8.self)
+        XCTAssertFalse(drawn.contains("<c:pieChart>"))
+        XCTAssertFalse(drawn.contains("ppt/charts/"))
+        XCTAssertTrue(drawn.contains("<p:pic>"), "placed as a picture")
+        XCTAssertTrue(drawn.contains("ppt/media/image1.png"))
+        let native = Markdown.deck(from: "## P\n[chart pie native]\n| a | b |\n|---|---|\n| x | 1 |\n").slides[0]
+        guard case let .chart(_, _, _, _, isNative, _) = native else { return XCTFail() }
+        XCTAssertTrue(isNative)
+        let image = ChartImage.pie(Charts.Data(rows: rows, header: true), doughnut: true, design: .fallback, width: 800, height: 400)
+        XCTAssertNotNil(image)
+        XCTAssertEqual(ImageSize.of(image!)?.width, 1600, "drawn at two pixels per point")
+    }
+
+    func testAChartSitsOnACardWhenTheDesignHasOne() throws {
+        let boxes = Layout(design: try Designs.named("aurora")).boxes(for: .chart("C", kind: .column, rows: rows, header: true, native: false, note: nil))
+        let card = boxes.first { if case .panel = $0.content { return true }; return false }
+        let chart = boxes.first { if case .chart = $0.content { return true }; return false }
+        XCTAssertNotNil(card); XCTAssertNotNil(chart)
+        XCTAssertEqual(card?.x, chart?.x); XCTAssertEqual(card?.width, chart?.width)
+        XCTAssertEqual(card?.height, chart?.height, "the frame is the card, so Quick Look's frame is the card's edge")
     }
 
     func testThePaletteTurnsTheAccentIntoDistinctHues() {
@@ -592,6 +617,7 @@ final class ChartTests: XCTestCase {
         XCTAssertEqual(palette.count, 8)
         XCTAssertEqual(palette[0], Design.fallback.accent)
         XCTAssertEqual(Set(palette).count, 8)
+        XCTAssertEqual(try Designs.named("aurora").chartPalette.count, 6, "the modern designs name their own")
         XCTAssertEqual(Colour.rotate("FF0000", by: 120), "00FF00")
         XCTAssertEqual(Colour.rotate("FF0000", by: 240), "0000FF")
         var own = Design.fallback; own.chartColours = ["112233"]

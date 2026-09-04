@@ -19,8 +19,8 @@ public struct Box: Sendable, Equatable {
         case picture(String, fit: Fit = .contain)
         /// A real table, editable in PowerPoint rather than a picture of one.
         case table(rows: [[String]], header: Bool)
-        /// A native chart, editable in PowerPoint rather than a picture of one.
-        case chart(kind: ChartKind, rows: [[String]], header: Bool)
+        /// A chart: native and editable, or drawn and placed as a picture.
+        case chart(kind: ChartKind, rows: [[String]], header: Bool, native: Bool)
         /// The slide's own number, as a field rather than a typed digit.
         case slideNumber(Int, size: Double, colour: String)
     }
@@ -284,12 +284,17 @@ public struct Layout: Sendable {
                              content: .text(list(items), align: .left, anchor: .top)))
             return boxes
 
-        case let .chart(heading, kind, rows, header, _):
+        case let .chart(heading, kind, rows, header, native, _):
+            /// On a card when the design has one, and the chart's frame IS
+            /// the card's rectangle: Quick Look draws a hairline frame round
+            /// every chart that nothing in the file can switch off, and
+            /// coincident with the card's edge it reads as the card's border.
             let head = ordinary + self.heading(heading, kicker: kicker)
             let top = heading == nil ? canvas.down(0.16) : bodyTop
-            return head + [Box(x: margin, y: top, width: contentWidth,
-                               height: canvas.down(0.88) - top,
-                               content: .chart(kind: kind, rows: rows, header: header))]
+            let frame = Box(x: margin, y: top, width: contentWidth, height: canvas.down(0.88) - top,
+                            content: .chart(kind: kind, rows: rows, header: header, native: native))
+            let card = design.card.map { Box(x: frame.x, y: frame.y, width: frame.width, height: frame.height, content: .panel($0)) }
+            return head + [card].compactMap { $0 } + [frame]
 
         case let .points(heading, items, _):
             return ordinary + self.heading(heading, kicker: kicker) + [body(list(items))]

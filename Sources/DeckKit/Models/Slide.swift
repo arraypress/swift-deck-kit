@@ -60,9 +60,11 @@ public enum Slide: Sendable {
     /// The deck's sections, listed.
     case agenda(String?)
 
-    /// A native chart, from a table whose first column is the categories
-    /// and every other column a series.
-    case chart(String?, kind: ChartKind, rows: [[String]], header: Bool, note: String?)
+    /// A chart, from a table whose first column is the categories and every
+    /// other column a series. `native` asks for an editable chart object
+    /// even where a drawn one is the default (pies and doughnuts, which
+    /// Quick Look cannot draw).
+    case chart(String?, kind: ChartKind, rows: [[String]], header: Bool, native: Bool, note: String?)
 
     /// The heading, for a contents listing and for `deck check`.
     public var heading: String? {
@@ -78,7 +80,7 @@ public enum Slide: Sendable {
         case let .split(text, _, _, _, _, _): return text
         case let .cover(text, _, _, _): return text
         case let .agenda(text): return text
-        case let .chart(text, _, _, _, _): return text
+        case let .chart(text, _, _, _, _, _): return text
         }
     }
 
@@ -123,7 +125,7 @@ public enum Slide: Sendable {
             return [a] + items.map(\.text) + [caption].compactMap { $0 }
         case let .cover(a, b, _, _): return [a] + [b].compactMap { $0 }
         case let .agenda(a): return [a].compactMap { $0 }
-        case let .chart(a, _, rows, _, _):
+        case let .chart(a, _, rows, _, _, _):
             return [a].compactMap { $0 } + rows.flatMap { $0 }
         }
     }
@@ -139,7 +141,7 @@ public enum Slide: Sendable {
         /// all, one level in.
         case let .section(_, _, note), let .stat(_, _, note), let .cards(_, _, note):
             return note
-        case let .split(_, _, _, _, _, note), let .chart(_, _, _, _, note):
+        case let .split(_, _, _, _, _, note), let .chart(_, _, _, _, _, note):
             return note
         default: return nil
         }

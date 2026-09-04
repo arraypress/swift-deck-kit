@@ -60,7 +60,9 @@ enum Charts {
     static func part(kind: ChartKind, data: Data, design: Design, ground: String) -> String {
         let palette = design.chartPalette
         let text = textProperties(size: design.captionSize, colour: design.body, font: design.bodyFont)
-        let gridline = Colour.blend(design.body, alpha: 0.22, over: ground)
+        /// Visible, not black: at 22% over a navy ground the gridlines read
+        /// as black rules on the slide.
+        let gridline = Colour.blend(design.body, alpha: 0.4, over: ground)
         let lastRow = data.categories.count + 1
         let categories = "<c:cat><c:strRef><c:f>Sheet1!$A$2:$A$\(lastRow)</c:f><c:strCache><c:ptCount val=\"\(data.categories.count)\"/>"
             + data.categories.enumerated().map { "<c:pt idx=\"\($0)\"><c:v>\(PPTX.escape($1))</c:v></c:pt>" }.joined()

@@ -184,7 +184,11 @@ public struct Design: Codable, Sendable, Equatable {
     /// tell apart.
     public var chartPalette: [String] {
         if let chartColours, !chartColours.isEmpty { return chartColours }
-        return [0, 150, 60, 210, 300, 30, 120, 270].map { Colour.rotate(accent, by: Double($0)) }
+        /// Turned round the wheel and softened: at full saturation the
+        /// turned colours came out lime and hot pink beside a quiet accent.
+        return [0, 150, 60, 210, 300, 30, 120, 270].enumerated().map { index, degrees in
+            Colour.rotate(accent, by: Double(degrees), saturation: index == 0 ? 1 : 0.72)
+        }
     }
 
     // MARK: The scale

@@ -71,11 +71,17 @@ Added after the audit, each measured the same way:
   in `ppt/embeddings/`), which is what makes Edit Data work and, measured,
   what Quick Look draws — it left a literal-data chart blank, and the schema
   agrees a series name cannot be a `strLit`. Series colours come from the
-  accent turned round the hue wheel (`chartColours` in a design overrides),
-  text names the body face, gridlines composite over the ground. Two
-  Quick Look limits, documented rather than fought: it draws a pie in one
-  colour, and a hairline frame round every chart. LibreOffice, PowerPoint
-  and python-pptx see the real thing.
+  design's own palette (`chartColours`; the modern designs name six, other
+  designs turn the accent round the hue wheel, softened), text names the
+  body face, gridlines composite over the ground. **Pies and doughnuts are
+  drawn** (`ChartImage`, CoreGraphics) and placed as pictures, because
+  Quick Look renders a native pie as one undivided circle whatever the file
+  says — measured with per-slice colours, theme accents and data labels,
+  none honoured; `[chart pie native]` writes the editable object for a
+  PowerPoint audience. **Charts sit on a card** whose rectangle is the
+  chart's own: Quick Look draws a hairline frame round every chart that
+  nothing in the file switches off, and coincident with the card's edge it
+  reads as the border.
 - **Transitions and builds.** `transition: fade` (or `push`, `wipe`) and
   `build: yes` — lists appear one point per click, the timing tree
   PowerPoint itself writes for that choice. **Validated, not seen:** Quick
@@ -279,7 +285,7 @@ they differed, it reported a problem the layout did not have.
 
 ## Tested
 
-127 tests: the grammar keeping every word, a quote's attribution staying with
+130 tests: the grammar keeping every word, a quote's attribution staying with
 its quote, a picture keeping the heading above it, the heading landing in the
 same place on every slide shape, nothing placed outside the canvas, the same
 deck writing byte-identical output, and `&`/`<` escaped while typographic

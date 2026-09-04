@@ -63,5 +63,13 @@
     "borderWidth": 0,
     "radius": 0,
     "shadow": false
-  }
+  },
+  "chartColours": [
+    "4F46E5",
+    "0EA5E9",
+    "F59E0B",
+    "EC4899",
+    "10B981",
+    "8B5CF6"
+  ]
 }
