@@ -52,7 +52,8 @@ public enum PPTX {
         var slideParts: [(xml: String, rels: String)] = []
         let notedSlides = Set(noted.map(\.0))
         for (offset, slide) in deck.slides.enumerated() {
-            let boxes = layout.boxes(for: slide) + [layout.slideNumber(for: slide)].compactMap { $0 }
+            let boxes = layout.boxes(for: slide)
+                + [layout.slideNumber(for: slide, number: offset + 1)].compactMap { $0 }
             var pictures: [(rel: String, name: String)] = []
             for box in boxes {
                 if case let .picture(path) = box.content, let name = media[path] {
@@ -160,7 +161,7 @@ public enum PPTX {
             """.utf8)))
         for (offset, layout) in Layouts.all.enumerated() {
             entries.append(.init(name: "ppt/slideLayouts/slideLayout\(offset + 1).xml",
-                                 data: Data(Layouts.xml(layout, design: design, canvas: canvas).utf8)))
+                                 data: Data(Layouts.xml(layout).utf8)))
             entries.append(.init(name: "ppt/slideLayouts/_rels/slideLayout\(offset + 1).xml.rels", data: Data("""
                 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\
                 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\
@@ -244,8 +245,9 @@ public enum PPTX {
             case let .text(runs, align, anchor):
                 shapes += textBox(id: id, box: box, runs: runs, align: align,
                                   anchor: anchor, links: links)
-            case let .slideNumber(size, colour):
-                shapes += slideNumberField(id: id, box: box, size: size, colour: colour)
+            case let .slideNumber(number, size, colour):
+                shapes += slideNumberField(id: id, box: box, number: number,
+                                           size: size, colour: colour)
             case let .table(rows, header):
                 shapes += table(id: id, box: box, rows: rows, header: header, design: design)
             case let .picture(path):
@@ -375,16 +377,25 @@ public enum PPTX {
             let before = run.spaceBefore > 0
                 ? "<a:spcBef><a:spcPts val=\"\(Int(run.spaceBefore * 100))\"/></a:spcBef>"
                 : ""
+            /// **The bullet needs its own colour.** A `buChar` inherits
+            /// nothing from the run beside it and falls back to BLACK, so
+            /// every dash on a dark slide was invisible-but-there — a row of
+            /// black marks down the left of a navy deck.
+            ///
+            /// And its own size: at full body size a dash is heavier than
+            /// the sentence it introduces.
+            let colour = "<a:buClr><a:srgbClr val=\"\(run.colour)\"/></a:buClr>"
+                + "<a:buSzPct val=\"85000\"/>"
             let bullet: String
             switch run.marker {
             case .none:
                 bullet = "<a:buNone/>"
             case let .character(mark):
-                bullet = "<a:buFont typeface=\"Arial\"/><a:buChar char=\"\(escape(mark))\"/>"
+                bullet = colour + "<a:buFont typeface=\"Arial\"/><a:buChar char=\"\(escape(mark))\"/>"
             case .number:
                 /// Counted by PowerPoint, so inserting a line renumbers the
                 /// rest instead of leaving the author to fix it by hand.
-                bullet = "<a:buFont typeface=\"Arial\"/><a:buAutoNum type=\"arabicPeriod\"/>"
+                bullet = colour + "<a:buFont typeface=\"Arial\"/><a:buAutoNum type=\"arabicPeriod\"/>"
             }
             /// A hanging indent, so a wrapped line lines up with the text
             /// above it rather than with the bullet.
@@ -393,7 +404,9 @@ public enum PPTX {
             /// style from the master, and with none defined it overrode these
             /// and left every sub-bullet's marker at the same x while only
             /// its text moved.
-            let step = 26.0
+            /// Closer than it was. At 26pt the dash sat a thumb's width from
+            /// its sentence and read as a separate column of marks.
+            let step = 17.0
             let indent = run.marker == .none && run.level == 0
                 ? ""
                 : " marL=\"\(Canvas.points(step + Double(run.level) * step))\" indent=\"-\(Canvas.points(step))\""
@@ -436,7 +449,8 @@ public enum PPTX {
     /// `<a:fld type="slidenum">` rather than a typed digit, so moving a slide
     /// renumbers it. The literal inside is only what a reader that cannot
     /// evaluate the field falls back to.
-    private static func slideNumberField(id: Int, box: Box, size: Double, colour: String) -> String {
+    private static func slideNumberField(id: Int, box: Box, number: Int,
+                                         size: Double, colour: String) -> String {
         """
         <p:sp><p:nvSpPr><p:cNvPr id="\(id)" name="number\(id)"/><p:cNvSpPr txBox="1"/>\
         <p:nvPr/></p:nvSpPr>\
@@ -447,7 +461,7 @@ public enum PPTX {
         <a:fld id="{B4B7A2E9-0F1C-4A64-9E19-1F1E8E1C4E01}" type="slidenum">\
         <a:rPr lang="en-GB" sz="\(Int(size * 100))" dirty="0">\
         <a:solidFill><a:srgbClr val="\(colour)"/></a:solidFill></a:rPr>\
-        <a:t>2</a:t></a:fld></a:p></p:txBody></p:sp>
+        <a:t>\(number)</a:t></a:fld></a:p></p:txBody></p:sp>
         """
     }
 

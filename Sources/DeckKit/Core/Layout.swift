@@ -20,7 +20,7 @@ public struct Box: Sendable, Equatable {
         /// A real table, editable in PowerPoint rather than a picture of one.
         case table(rows: [[String]], header: Bool)
         /// The slide's own number, as a field rather than a typed digit.
-        case slideNumber(size: Double, colour: String)
+        case slideNumber(Int, size: Double, colour: String)
     }
     public enum Align: String, Sendable { case left, centre, right }
     public enum Anchor: String, Sendable { case top, middle, bottom }
@@ -131,7 +131,7 @@ public struct Layout: Sendable {
     ///
     /// Left off title and section slides, which is the convention every deck
     /// follows — a number on a section divider looks like a mistake.
-    public func slideNumber(for slide: Slide) -> Box? {
+    public func slideNumber(for slide: Slide, number: Int) -> Box? {
         guard design.slideNumbers else { return nil }
         switch slide {
         case .title, .section: return nil
@@ -140,7 +140,7 @@ public struct Layout: Sendable {
         return Box(x: canvas.width - margin - canvas.across(0.08),
                    y: canvas.height - canvas.down(0.075),
                    width: canvas.across(0.08), height: canvas.down(0.045),
-                   content: .slideNumber(size: design.captionSize * 0.85, colour: design.body))
+                   content: .slideNumber(number, size: design.captionSize * 0.85, colour: design.body))
     }
 
     public func boxes(for slide: Slide) -> [Box] {
@@ -320,14 +320,14 @@ public struct Layout: Sendable {
                         level: item.level)
                 }
             }
-            /// Both columns anchored the same way, so a five-item column and
-            /// a three-item column start on the same line rather than one
-            /// floating in the middle of the other.
+            /// Anchored to the TOP, not centred. Centred, a three-item
+            /// column floats halfway down beside a five-item one and the two
+            /// lists read as unrelated.
             return head + [
                 Box(x: margin, y: top, width: column, height: depth,
-                    content: .text(runs(left), align: .left, anchor: .middle)),
+                    content: .text(runs(left), align: .left, anchor: .top)),
                 Box(x: margin + column + gutter, y: top, width: column, height: depth,
-                    content: .text(runs(right), align: .left, anchor: .middle)),
+                    content: .text(runs(right), align: .left, anchor: .top)),
             ]
         }
     }

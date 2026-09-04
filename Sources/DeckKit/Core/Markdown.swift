@@ -222,6 +222,16 @@ public enum Markdown {
                 /// An attribution line under a quote or statement.
                 attribution = line.drop(while: { $0 == "—" || $0 == "-" })
                     .trimmingCharacters(in: .whitespaces)
+            } else if !points.isEmpty || !rightPoints.isEmpty {
+                /// Markdown's lazy continuation: a wrapped list item runs on
+                /// to the next line. Without this the remainder was neither a
+                /// bullet nor usable prose — a block with points ignores
+                /// prose entirely — so half the sentence simply vanished.
+                if inRightColumn, !rightPoints.isEmpty {
+                    rightPoints[rightPoints.count - 1].text += " " + line
+                } else if !points.isEmpty {
+                    points[points.count - 1].text += " " + line
+                }
             } else {
                 prose.append(line)
             }

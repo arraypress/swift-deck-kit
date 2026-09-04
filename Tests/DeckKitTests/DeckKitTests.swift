@@ -502,8 +502,14 @@ final class ListTests: XCTestCase {
         // marker at the same x while only its text moved.
         let deck = Markdown.deck(from: "## H\n- top\n  - under")
         let text = String(decoding: try PPTX.data(deck: deck, design: .fallback), as: UTF8.self)
-        XCTAssertTrue(text.contains("marL=\"330200\" indent=\"-330200\""))
-        XCTAssertTrue(text.contains("marL=\"660400\" indent=\"-330200\""))
+        /// One step in, then two — the exact figures follow the step size,
+        /// so this asserts the shape rather than the numbers: a level-1 item
+        /// is indented twice as far as a level-0 one and both hang by one.
+        let level0 = try XCTUnwrap(text.range(of: "marL=\"")).upperBound
+        let first = Int(text[level0...].prefix(while: \.isNumber)) ?? 0
+        XCTAssertGreaterThan(first, 0)
+        XCTAssertTrue(text.contains("marL=\"\(first * 2)\" indent=\"-\(first)\""),
+                      "a level-1 item should sit twice as far in")
         XCTAssertFalse(text.contains("lvl=\""))
     }
 }
@@ -609,15 +615,15 @@ final class SlideNumberTests: XCTestCase {
 
     func testNumbersAreOffUnlessTheDesignAsks() {
         let layout = Layout(design: design(numbers: false))
-        XCTAssertNil(layout.slideNumber(for: .points("H", items: ["a"], note: nil)))
+        XCTAssertNil(layout.slideNumber(for: .points("H", items: ["a"], note: nil), number: 3))
     }
 
     func testAFeatureSlideCarriesNoNumber() {
         // A number on a section divider looks like a mistake.
         let layout = Layout(design: design(numbers: true))
-        XCTAssertNil(layout.slideNumber(for: .title("T", subtitle: nil)))
-        XCTAssertNil(layout.slideNumber(for: .section("S", subtitle: nil, note: nil)))
-        XCTAssertNotNil(layout.slideNumber(for: .points("H", items: ["a"], note: nil)))
+        XCTAssertNil(layout.slideNumber(for: .title("T", subtitle: nil), number: 3))
+        XCTAssertNil(layout.slideNumber(for: .section("S", subtitle: nil, note: nil), number: 3))
+        XCTAssertNotNil(layout.slideNumber(for: .points("H", items: ["a"], note: nil), number: 3))
     }
 
     func testItIsAFieldNotATypedDigit() throws {
@@ -752,5 +758,91 @@ final class NoteOwnershipTests: XCTestCase {
                               as: UTF8.self)
             XCTAssertTrue(text.contains("notesSlide1.xml"), "\(shape.kind) lost its note")
         }
+    }
+}
+
+final class BulletAppearanceTests: XCTestCase {
+
+    func testABulletCarriesItsOwnColour() throws {
+        // A buChar inherits nothing from the run beside it and falls back to
+        // BLACK — a row of black dashes down the left of a navy deck.
+        let deck = Markdown.deck(from: "## H\n- one\n- two")
+        let design = try Designs.named("aurora")
+        let text = String(decoding: try PPTX.data(deck: deck, design: design), as: UTF8.self)
+        XCTAssertTrue(text.contains("<a:buClr><a:srgbClr val=\"\(design.body)\"/></a:buClr>"))
+    }
+
+    func testANumberedListIsColouredToo() throws {
+        let deck = Markdown.deck(from: "## H\n1. one")
+        let design = try Designs.named("aurora")
+        let text = String(decoding: try PPTX.data(deck: deck, design: design), as: UTF8.self)
+        XCTAssertTrue(text.contains("<a:buClr>"))
+        XCTAssertTrue(text.contains("buAutoNum"))
+    }
+
+    func testColumnsStartOnTheSameLine() {
+        // Centred, a three-item column floats halfway down beside a
+        // five-item one and the two lists read as unrelated.
+        let layout = Layout(design: .fallback)
+        let boxes = layout.boxes(for: .columns("C", left: ["a", "b", "c"], right: ["d"], note: nil))
+        let texts = boxes.filter { if case .text = $0.content { return true }; return false }
+        XCTAssertEqual(texts.count, 3, "a heading and two columns")
+        XCTAssertEqual(texts[1].y, texts[2].y)
+        if case let .text(_, _, anchor) = texts[1].content {
+            XCTAssertEqual(anchor, .top)
+        }
+    }
+}
+
+final class ContinuationTests: XCTestCase {
+
+    func testAWrappedListItemIsNotDropped() {
+        // Markdown's lazy continuation. Without it the remainder was neither
+        // a bullet nor usable prose — a block with points ignores prose — so
+        // half the sentence simply vanished from the slide.
+        let deck = Markdown.deck(from: """
+            ## H
+            - Verify a framework headless against the real
+              `.swiftinterface`, never against search results
+            - another point
+            """)
+        guard case let .points(_, items, _) = deck.slides[0] else { return XCTFail() }
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items[0].text.contains("swiftinterface"), items[0].text)
+        XCTAssertTrue(items[0].text.contains("search results"))
+    }
+
+    func testProseBeforeAnyBulletIsStillProse() {
+        let deck = Markdown.deck(from: "## H\na paragraph\n- and then a point")
+        guard case let .points(_, items, _) = deck.slides[0] else { return XCTFail() }
+        XCTAssertEqual(items.count, 1)
+        XCTAssertFalse(items[0].text.contains("paragraph"))
+    }
+}
+
+final class LayoutGeometryTests: XCTestCase {
+
+    func testLayoutPlaceholdersCarryNoGeometry() {
+        // Given an explicit a:xfrm they are real shapes at real coordinates,
+        // and a viewer that paints empty placeholders — several do — draws a
+        // ghost box on every slide that uses the layout.
+        for layout in Layouts.all {
+            let xml = Layouts.xml(layout)
+            /// One transform only: the shape tree's own, which is required.
+            /// Any more means a placeholder was given coordinates.
+            XCTAssertEqual(xml.components(separatedBy: "<a:xfrm").count - 1, 1,
+                           "\(layout.name) positions a placeholder")
+        }
+    }
+
+    func testASlideNumbersLiteralMatchesItsSlide() throws {
+        let deck = Deck(slides: (1...3).map { .points("H\($0)", items: ["a"], note: nil) })
+        var design = Design.fallback
+        design.slideNumbers = true
+        let text = String(decoding: try PPTX.data(deck: deck, design: design), as: UTF8.self)
+        // The literal is only a fallback, but a deck where every slide says
+        // "2" is what a reader sees in anything that does not evaluate fields.
+        XCTAssertTrue(text.contains("<a:t>1</a:t>"))
+        XCTAssertTrue(text.contains("<a:t>3</a:t>"))
     }
 }

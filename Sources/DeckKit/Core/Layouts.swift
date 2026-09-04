@@ -44,25 +44,19 @@ enum Layouts {
 
     /// One layout part.
     ///
-    /// The placeholders are given real geometry rather than left to the
-    /// master: a reader who picks "Title and Content" from the menu should
-    /// get boxes where this design puts them, not where PowerPoint's default
-    /// master does.
-    static func xml(_ layout: (name: String, type: String, placeholders: [Placeholder]),
-                    design: Design, canvas: Canvas) -> String {
-        let margin = canvas.across(design.margin)
-        let width = canvas.width - margin * 2
+    /// The placeholders carry **no geometry**. Given an explicit `a:xfrm`
+    /// they are real shapes at real coordinates, and a viewer that paints
+    /// empty placeholders — several do — draws a ghost box on every slide
+    /// that uses the layout. They exist for the New Slide menu; the slides
+    /// this writes position their own text.
+    static func xml(_ layout: (name: String, type: String, placeholders: [Placeholder])) -> String {
         var shapes = ""
         for (offset, placeholder) in layout.placeholders.enumerated() {
-            let isTitle = placeholder.type.hasSuffix("itle")
-            let y = isTitle ? canvas.down(design.headingTop) : canvas.down(0.42)
-            let height = isTitle ? canvas.down(0.2) : canvas.down(0.42)
             shapes += """
                 <p:sp><p:nvSpPr><p:cNvPr id="\(offset + 2)" name="\(placeholder.type)"/>\
                 <p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>\
                 <p:nvPr><p:ph \(placeholder.attributes)/></p:nvPr></p:nvSpPr>\
-                <p:spPr><a:xfrm><a:off x="\(margin)" y="\(y)"/><a:ext cx="\(width)" cy="\(height)"/></a:xfrm>\
-                <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>\
+                <p:spPr/>\
                 <p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp>
                 """
         }
