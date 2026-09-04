@@ -17,12 +17,32 @@ public struct Box: Sendable, Equatable {
         /// A gradient ground, which is what a flat colour used to be.
         case gradient([Stop], angle: Double)
         case picture(String)
+        /// A real table, editable in PowerPoint rather than a picture of one.
+        case table(rows: [[String]], header: Bool)
+        /// The slide's own number, as a field rather than a typed digit.
+        case slideNumber(size: Double, colour: String)
     }
     public enum Align: String, Sendable { case left, centre, right }
     public enum Anchor: String, Sendable { case top, middle, bottom }
 
     public let x: Int, y: Int, width: Int, height: Int
     public let content: Content
+    /// The placeholder this box fills, if any.
+    ///
+    /// A slide's title has to sit in a `title` placeholder or the outline
+    /// pane shows nothing — the text is there, but PowerPoint has no idea
+    /// which of the boxes is the heading.
+    public var placeholder: String?
+
+    public init(x: Int, y: Int, width: Int, height: Int,
+                content: Content, placeholder: String? = nil) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.content = content
+        self.placeholder = placeholder
+    }
 }
 
 /// One styled paragraph.
@@ -107,13 +127,29 @@ public struct Layout: Sendable {
     /// The heading's box begins here on every slide that has one.
     private var gap: Int { Canvas.points(design.bodySize * design.gap) }
 
+    /// The slide number, bottom right, when the design asks for one.
+    ///
+    /// Left off title and section slides, which is the convention every deck
+    /// follows — a number on a section divider looks like a mistake.
+    public func slideNumber(for slide: Slide) -> Box? {
+        guard design.slideNumbers else { return nil }
+        switch slide {
+        case .title, .section: return nil
+        default: break
+        }
+        return Box(x: canvas.width - margin - canvas.across(0.08),
+                   y: canvas.height - canvas.down(0.075),
+                   width: canvas.across(0.08), height: canvas.down(0.045),
+                   content: .slideNumber(size: design.captionSize * 0.85, colour: design.body))
+    }
+
     public func boxes(for slide: Slide) -> [Box] {
         /// A gradient ground on ordinary slides as well, when the design asks
         /// for one — a modern deck is rarely flat white.
         let ordinary = ground(feature: false).map { [$0] } ?? []
         switch slide {
         case let .title(text, subtitle):
-            return feature(text, size: design.titleSize, secondary: subtitle)
+            return feature(text, size: design.titleSize, secondary: subtitle, isTitleSlide: true)
 
         case let .section(text, note):
             return feature(text, size: design.sectionSize, secondary: note)
@@ -256,6 +292,18 @@ public struct Layout: Sendable {
             }
             return boxes
 
+        case let .table(heading, rows, header):
+            let head = ordinary + (heading.map(self.heading) ?? [])
+            let top = heading == nil ? canvas.down(0.2) : bodyTop
+            /// The frame's height is a starting point: PowerPoint grows a
+            /// table to fit its rows and will not shrink below what the text
+            /// needs, so asking for less than the rows require just moves the
+            /// overflow rather than preventing it.
+            let depth = min(canvas.height - top - canvas.down(0.12),
+                            Canvas.points(design.lineHeight(design.bodySize) * 2.1 * Double(max(1, rows.count))))
+            return head + [Box(x: margin, y: top, width: contentWidth, height: depth,
+                               content: .table(rows: rows, header: header))]
+
         case let .columns(heading, left, right, _):
             let head = ordinary + self.heading(heading)
             let leading = design.bodySize * design.leading
@@ -301,7 +349,8 @@ public struct Layout: Sendable {
                                              bold: design.headingBold, colour: design.heading,
                                              tracking: design.headingTracking,
                                              lineSpacing: design.lineSpacing)],
-                                        align: .left, anchor: .bottom))]
+                                        align: .left, anchor: .bottom),
+                         placeholder: "title")]
         if design.rule {
             /// Under the heading's band rather than under the text itself:
             /// the rule marks the grid, and a rule that moves with a one-line
@@ -352,7 +401,8 @@ public struct Layout: Sendable {
     }
 
     /// Title and section slides: full-bleed ground, text on the lower third.
-    private func feature(_ text: String, size: Double, secondary: String?) -> [Box] {
+    private func feature(_ text: String, size: Double, secondary: String?,
+                         isTitleSlide: Bool = false) -> [Box] {
         var boxes = [ground(feature: true)].compactMap { $0 }
         var runs = [Run(text, size: size, bold: design.headingBold, colour: design.featureHeading,
                         tracking: design.headingTracking, lineSpacing: design.lineSpacing)]
@@ -362,7 +412,8 @@ public struct Layout: Sendable {
         }
         boxes.append(Box(x: margin, y: canvas.down(0.24), width: contentWidth,
                          height: canvas.down(0.52),
-                         content: .text(runs, align: .left, anchor: .middle)))
+                         content: .text(runs, align: .left, anchor: .middle),
+                         placeholder: isTitleSlide ? "ctrTitle" : "title"))
         if design.rule {
             boxes.append(Box(x: margin, y: canvas.down(0.79), width: canvas.across(0.05),
                              height: Canvas.points(3), content: .fill(design.accent)))

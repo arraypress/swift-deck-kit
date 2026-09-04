@@ -87,6 +87,39 @@ who renumbers by hand always ends up with two number sevens. Indentation is
 list style from the master, and with none defined it overrode both and left
 every sub-bullet's marker at the same x while only its text moved.
 
+## Tables, numbers, layouts
+
+A Markdown pipe table becomes a **real `<a:tbl>`**, not a picture of one — the
+person you hand the deck to can edit a cell, which is the entire reason this
+writes PowerPoint instead of a PDF. A lone `|` still means two columns; a pipe
+with content round it means a table.
+
+Slide numbers are a `<a:fld type="slidenum">`, so moving a slide renumbers it.
+Off unless the design asks, and never on a title or section slide.
+
+**Four layouts with real placeholders.** With one blank layout the recipient's
+*New Slide* menu was empty, the **outline pane showed nothing** — no text sat
+in a title placeholder, so PowerPoint had no idea which box was the heading —
+and "Reset" did nothing. The file opened and looked right, and behaved like a
+folder of pictures.
+
+## Carrying the typeface
+
+A `.pptx` **names** fonts; it does not carry them. A deck set in a face the
+recipient has not got renders in whatever their machine substitutes — which is
+why `SF Pro` is not an option (it is installed as `.SFNS-Regular` under
+`.AppleSystemUIFont`, and asking for it by name returns Helvetica) and why
+`Avenir Next`, lovely on a Mac, degrades on Windows.
+
+`Embedding.bundled()` carries [Inter](https://github.com/rsms/inter) — SIL OFL
+1.1, which explicitly permits embedding — as four `fntdata` parts, about
+1.6 MB. **Optional, not assumed:** PowerPoint honours an embedded font,
+Keynote and Google Slides largely ignore it, and no format solves those.
+
+A file that is not a font is refused on its magic number, because a `.pptx`
+carrying a text file named `.ttf` opens and then renders nothing, with no error
+anywhere.
+
 ## The modern vocabulary
 
 All of it is in OOXML and none of it was used at first, which is most of why
@@ -137,7 +170,7 @@ they differed, it reported a problem the layout did not have.
 
 ## Tested
 
-54 tests: the grammar keeping every word, a quote's attribution staying with
+70 tests: the grammar keeping every word, a quote's attribution staying with
 its quote, a picture keeping the heading above it, the heading landing in the
 same place on every slide shape, nothing placed outside the canvas, the same
 deck writing byte-identical output, and `&`/`<` escaped while typographic

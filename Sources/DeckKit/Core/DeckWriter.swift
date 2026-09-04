@@ -43,9 +43,12 @@ public enum DeckWriter {
         design: Design,
         canvas: Canvas = .sixteenByNine,
         images: [String: Data] = [:],
+        embed: [(face: Embedding.Face, data: Data)] = [],
+        embedTypeface: String = Embedding.bundledTypeface,
         to url: URL
     ) throws -> Int {
-        let data = try PPTX.data(deck: deck, design: design, canvas: canvas, images: images)
+        let data = try PPTX.data(deck: deck, design: design, canvas: canvas,
+                                 images: images, embed: embed, embedTypeface: embedTypeface)
         do { try data.write(to: url, options: .atomic) }
         catch { throw DeckError.cannotWrite(url.path) }
         return data.count

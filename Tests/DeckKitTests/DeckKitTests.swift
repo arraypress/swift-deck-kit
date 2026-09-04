@@ -544,3 +544,164 @@ final class NotesOutputTests: XCTestCase {
         XCTAssertTrue(text.contains("hlinkClick"))
     }
 }
+
+// MARK: - Tables, numbers, layouts and embedding
+
+final class TableTests: XCTestCase {
+
+    func testAPipeTableBecomesATable() {
+        let deck = Markdown.deck(from: """
+            ## Results
+            | Tool | Result |
+            |---|---|
+            | one | passes |
+            | two | passes |
+            """)
+        guard case let .table(heading, rows, header) = deck.slides[0] else {
+            return XCTFail("got \(deck.slides[0].kind)")
+        }
+        XCTAssertEqual(heading, "Results")
+        XCTAssertTrue(header)
+        XCTAssertEqual(rows.count, 3, "the rule row carries no data")
+        XCTAssertEqual(rows[0], ["Tool", "Result"])
+        XCTAssertEqual(rows[2], ["two", "passes"])
+    }
+
+    func testALonePipeIsStillTwoColumnsNotATable() {
+        // Both use the pipe, and confusing them would silently turn every
+        // comparison into a one-column table.
+        let deck = Markdown.deck(from: "## C\n- a\n|\n- b")
+        XCTAssertEqual(deck.slides[0].kind, "columns")
+    }
+
+    func testATableWithNoRuleHasNoHeader() {
+        let deck = Markdown.deck(from: "| a | b |\n| c | d |")
+        guard case let .table(_, rows, header) = deck.slides[0] else { return XCTFail() }
+        XCTAssertFalse(header)
+        XCTAssertEqual(rows.count, 2)
+    }
+
+    func testARaggedRowIsPaddedNotDropped() throws {
+        let deck = Markdown.deck(from: "| a | b | c |\n|---|---|---|\n| only one |")
+        let text = String(decoding: try PPTX.data(deck: deck, design: .fallback), as: UTF8.self)
+        XCTAssertTrue(text.contains("<a:tbl>"))
+        XCTAssertTrue(text.contains("only one"))
+    }
+
+    func testItIsARealTableNotAPicture() throws {
+        // The entire reason this writes PowerPoint instead of a PDF is that
+        // somebody can edit a cell.
+        let deck = Markdown.deck(from: "| a | b |\n|---|---|\n| 1 | 2 |")
+        let text = String(decoding: try PPTX.data(deck: deck, design: .fallback), as: UTF8.self)
+        XCTAssertTrue(text.contains("graphicFrame"))
+        XCTAssertTrue(text.contains("<a:gridCol"))
+        XCTAssertFalse(text.contains("<p:pic>"))
+    }
+}
+
+final class SlideNumberTests: XCTestCase {
+
+    private func design(numbers: Bool) -> Design {
+        var design = Design.fallback
+        design.slideNumbers = numbers
+        return design
+    }
+
+    func testNumbersAreOffUnlessTheDesignAsks() {
+        let layout = Layout(design: design(numbers: false))
+        XCTAssertNil(layout.slideNumber(for: .points("H", items: ["a"], note: nil)))
+    }
+
+    func testAFeatureSlideCarriesNoNumber() {
+        // A number on a section divider looks like a mistake.
+        let layout = Layout(design: design(numbers: true))
+        XCTAssertNil(layout.slideNumber(for: .title("T", subtitle: nil)))
+        XCTAssertNil(layout.slideNumber(for: .section("S", note: nil)))
+        XCTAssertNotNil(layout.slideNumber(for: .points("H", items: ["a"], note: nil)))
+    }
+
+    func testItIsAFieldNotATypedDigit() throws {
+        // So moving a slide renumbers it.
+        let deck = Deck(slides: [.points("H", items: ["a"], note: nil)])
+        let text = String(decoding: try PPTX.data(deck: deck, design: design(numbers: true)), as: UTF8.self)
+        XCTAssertTrue(text.contains("type=\"slidenum\""))
+    }
+}
+
+final class LayoutPartTests: XCTestCase {
+
+    func testEverySlideShapeMapsToALayoutThatExists() {
+        let shapes: [Slide] = [
+            .title("T", subtitle: nil), .section("S", note: nil),
+            .points("P", items: ["a"], note: nil), .prose("R", body: "b", note: nil),
+            .statement("S", attribution: nil), .quote("Q", attribution: nil),
+            .stat(nil, figures: [(figure: "1", label: "x")]),
+            .cards(nil, panels: [(title: "T", body: "b")]),
+            .table(nil, rows: [["a"]], header: false),
+            .columns("C", left: ["a"], right: ["b"], note: nil),
+        ]
+        for shape in shapes {
+            let number = Layouts.number(for: shape)
+            XCTAssertTrue((1...Layouts.all.count).contains(number), shape.kind)
+        }
+    }
+
+    func testAHeadingSitsInATitlePlaceholder() throws {
+        // Without it the outline pane shows nothing: the text is there, but
+        // PowerPoint has no idea which box is the heading.
+        let deck = Deck(slides: [.points("A heading", items: ["a"], note: nil)])
+        let text = String(decoding: try PPTX.data(deck: deck, design: .fallback), as: UTF8.self)
+        XCTAssertTrue(text.contains("<p:ph type=\"title\"/>"))
+    }
+
+    func testAllFourLayoutsAreWritten() throws {
+        let deck = Deck(slides: [.title("T", subtitle: nil)])
+        let text = String(decoding: try PPTX.data(deck: deck, design: .fallback), as: UTF8.self)
+        for number in 1...4 {
+            XCTAssertTrue(text.contains("ppt/slideLayouts/slideLayout\(number).xml"), "layout \(number)")
+        }
+    }
+}
+
+final class EmbeddingTests: XCTestCase {
+
+    func testTheBundledFacesAreThere() {
+        let faces = Embedding.bundled()
+        XCTAssertEqual(faces.count, 4)
+        XCTAssertEqual(Set(faces.map(\.face)), Set(Embedding.Face.allCases))
+        for face in faces {
+            XCTAssertTrue(Embedding.isFont(face.data), "\(face.face) is not a font")
+            XCTAssertGreaterThan(face.data.count, 100_000)
+        }
+    }
+
+    func testSomethingThatIsNotAFontIsRefused() {
+        // A .pptx carrying a text file named .ttf opens and then renders
+        // nothing, with no error anywhere.
+        XCTAssertFalse(Embedding.isFont(Data("this is not a font".utf8)))
+        XCTAssertFalse(Embedding.isFont(Data()))
+    }
+
+    func testEmbeddingIsOptional() throws {
+        let deck = Deck(slides: [.title("T", subtitle: nil)])
+        let plain = try PPTX.data(deck: deck, design: .fallback)
+        let carried = try PPTX.data(deck: deck, design: .fallback, embed: Embedding.bundled())
+        XCTAssertFalse(String(decoding: plain, as: UTF8.self).contains("fntdata"))
+        XCTAssertTrue(String(decoding: carried, as: UTF8.self).contains("fntdata"))
+        XCTAssertGreaterThan(carried.count, plain.count + 1_000_000)
+    }
+
+    func testTheFontElementIsInThePresentationNamespace() {
+        // `a:font` renders everywhere and fails the schema: the element is
+        // declared in presentationml and only borrows its TYPE from
+        // DrawingML.
+        let list = PPTX.embeddedFontList([(face: .regular, data: Data())],
+                                         typeface: "Inter", firstRelation: 6)
+        XCTAssertTrue(list.contains("<p:font typeface=\"Inter\"/>"))
+        XCTAssertFalse(list.contains("<a:font"))
+    }
+
+    func testNoFontMeansNoList() {
+        XCTAssertTrue(PPTX.embeddedFontList([], typeface: "Inter", firstRelation: 6).isEmpty)
+    }
+}

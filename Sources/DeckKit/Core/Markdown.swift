@@ -115,6 +115,32 @@ public enum Markdown {
         return nil
     }
 
+    /// `| a | b |` — a row with at least two cells.
+    ///
+    /// Checked before the lone `|` that splits columns, and *after* it in the
+    /// caller, so a bare pipe still means two columns and a pipe with content
+    /// round it means a table.
+    static func isRow(_ line: String) -> Bool {
+        line.hasPrefix("|") && line.dropFirst().contains("|")
+    }
+
+    /// `|---|:--:|` — the separator under a header row.
+    static func isRule(_ line: String) -> Bool {
+        guard isRow(line) else { return false }
+        return cells(line).allSatisfy { cell in
+            !cell.isEmpty && cell.allSatisfy { $0 == "-" || $0 == ":" || $0 == " " }
+        }
+    }
+
+    /// The cells of a row, without the outer pipes.
+    static func cells(_ line: String) -> [String] {
+        var text = Substring(line)
+        if text.hasPrefix("|") { text = text.dropFirst() }
+        if text.hasSuffix("|") { text = text.dropLast() }
+        return text.split(separator: "|", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
     /// Whether a line begins a new slide.
     static func starts(_ line: String) -> Bool {
         line.hasPrefix("#") || line.hasPrefix(">") || line.hasPrefix("![")
@@ -133,6 +159,8 @@ public enum Markdown {
         var points: [Bullet] = []
         var figures: [(figure: String, label: String)] = []
         var panels: [(title: String, body: String)] = []
+        var tableRows: [[String]] = []
+        var tableHasHeader = false
         var rightPoints: [Bullet] = []
         var inRightColumn = false
         var prose: [String] = []
@@ -177,6 +205,12 @@ public enum Markdown {
                 let parts = line.dropFirst(3).split(separator: "|", maxSplits: 1)
                 panels.append((title: parts[0].trimmingCharacters(in: .whitespaces),
                                body: parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""))
+            } else if isRule(line) {
+                /// `|---|---|` — the line that turns the row above it into a
+                /// header. It carries no data of its own.
+                tableHasHeader = !tableRows.isEmpty
+            } else if isRow(line) {
+                tableRows.append(cells(line))
             } else if line == "|" {
                 /// A lone pipe splits the points into two columns. Without a
                 /// grammar for it the `columns` layout could never fire, and
@@ -207,6 +241,7 @@ public enum Markdown {
         /// Before the heading guard: a stat or a card block is a slide in its
         /// own right, and checking after it meant `= 91` on a line by itself
         /// produced no slide at all.
+        if !tableRows.isEmpty { return .table(heading, rows: tableRows, header: tableHasHeader) }
         if !figures.isEmpty { return .stat(heading, figures: figures) }
         if !panels.isEmpty { return .cards(heading, panels: panels) }
 

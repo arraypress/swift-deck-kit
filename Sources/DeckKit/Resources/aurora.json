@@ -34,6 +34,7 @@
   "headingTracking": -0.9,
   "kickerTracking": 2.2,
   "lineSpacing": 0.92,
+  "slideNumbers": true,
   "card": {
     "fill": "FFFFFF", "fillAlpha": 0.07,
     "border": "FFFFFF", "borderAlpha": 0.14, "borderWidth": 1,

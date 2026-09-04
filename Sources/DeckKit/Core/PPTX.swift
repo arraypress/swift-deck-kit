@@ -21,7 +21,9 @@ public enum PPTX {
         deck: Deck,
         design: Design,
         canvas: Canvas = .sixteenByNine,
-        images: [String: Data] = [:]
+        images: [String: Data] = [:],
+        embed: [(face: Embedding.Face, data: Data)] = [],
+        embedTypeface: String = Embedding.bundledTypeface
     ) throws -> Data {
 
         guard !deck.slides.isEmpty else { throw DeckError.empty }
@@ -50,7 +52,7 @@ public enum PPTX {
         var slideParts: [(xml: String, rels: String)] = []
         let notedSlides = Set(noted.map(\.0))
         for (offset, slide) in deck.slides.enumerated() {
-            let boxes = layout.boxes(for: slide)
+            let boxes = layout.boxes(for: slide) + [layout.slideNumber(for: slide)].compactMap { $0 }
             var pictures: [(rel: String, name: String)] = []
             for box in boxes {
                 if case let .picture(path) = box.content, let name = media[path] {
@@ -67,9 +69,11 @@ public enum PPTX {
                 linkIDs[target] = rel
             }
             let number = offset + 1
-            slideParts.append((xml: slideXML(boxes, media: media, canvas: canvas, links: linkIDs),
+            slideParts.append((xml: slideXML(boxes, media: media, canvas: canvas,
+                                             design: design, links: linkIDs),
                                rels: slideRels(pictures, links: linkRels,
-                                               notesSlide: notedSlides.contains(number) ? number : nil)))
+                                               notesSlide: notedSlides.contains(number) ? number : nil,
+                                               layout: Layouts.number(for: slide))))
         }
 
         // MARK: Parts
@@ -82,6 +86,9 @@ public enum PPTX {
             <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\
             <Default Extension="xml" ContentType="application/xml"/>
             """
+        if !embed.isEmpty {
+            defaults += "<Default Extension=\"fntdata\" ContentType=\"application/x-fontdata\"/>"
+        }
         for suffix in Set(media.values.map { ($0 as NSString).pathExtension }) {
             let type = suffix == "png" ? "image/png" : (suffix == "gif" ? "image/gif" : "image/jpeg")
             defaults += "<Default Extension=\"\(suffix)\" ContentType=\"\(type)\"/>"
@@ -93,7 +100,7 @@ public enum PPTX {
             \(defaults)\
             <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>\
             <Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>\
-            <Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>\
+            \((1...Layouts.all.count).map { "<Override PartName=\"/ppt/slideLayouts/slideLayout\($0).xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/>" }.joined())\
             <Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>\
             <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>\
             \(noted.isEmpty ? "" : "<Override PartName=\"/ppt/notesMasters/notesMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml\"/>")\
@@ -117,6 +124,9 @@ public enum PPTX {
             """.utf8)))
 
         let slideIDs = (0..<count).map { "<p:sldId id=\"\(256 + $0)\" r:id=\"rId\($0 + 2)\"/>" }.joined()
+        /// Fonts number after the slides, the theme and the notes master, so
+        /// their ids stay stable whether or not there are notes.
+        let fontRelationBase = count + (noted.isEmpty ? 3 : 4)
         entries.append(.init(name: "ppt/presentation.xml", data: Data("""
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\
             <p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" \
@@ -126,7 +136,9 @@ public enum PPTX {
             \(noted.isEmpty ? "" : "<p:notesMasterIdLst><p:notesMasterId r:id=\"rId\(count + 3)\"/></p:notesMasterIdLst>")\
             <p:sldIdLst>\(slideIDs)</p:sldIdLst>\
             <p:sldSz cx="\(canvas.width)" cy="\(canvas.height)"/>\
-            <p:notesSz cx="\(canvas.height)" cy="\(canvas.width)"/></p:presentation>
+            <p:notesSz cx="\(canvas.height)" cy="\(canvas.width)"/>\
+            \(embeddedFontList(embed, typeface: embedTypeface, firstRelation: fontRelationBase))\
+            </p:presentation>
             """.utf8)))
 
         var presentationRels = ["<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster\" Target=\"slideMasters/slideMaster1.xml\"/>"]
@@ -137,28 +149,41 @@ public enum PPTX {
         if !noted.isEmpty {
             presentationRels.append("<Relationship Id=\"rId\(count + 3)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster\" Target=\"notesMasters/notesMaster1.xml\"/>")
         }
-        entries.append(.init(name: "ppt/_rels/presentation.xml.rels", data: Data("""
-            <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\
-            <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\
-            \(presentationRels.joined())</Relationships>
-            """.utf8)))
 
         entries.append(.init(name: "ppt/slideMasters/slideMaster1.xml", data: Data(master(design).utf8)))
         entries.append(.init(name: "ppt/slideMasters/_rels/slideMaster1.xml.rels", data: Data("""
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\
             <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\
-            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>\
-            <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/>\
+            \((1...Layouts.all.count).map { "<Relationship Id=\"rId\($0)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout\($0).xml\"/>" }.joined())\
+            <Relationship Id="rId\(Layouts.all.count + 1)" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/>\
             </Relationships>
             """.utf8)))
-        entries.append(.init(name: "ppt/slideLayouts/slideLayout1.xml", data: Data(blankLayout.utf8)))
-        entries.append(.init(name: "ppt/slideLayouts/_rels/slideLayout1.xml.rels", data: Data("""
+        for (offset, layout) in Layouts.all.enumerated() {
+            entries.append(.init(name: "ppt/slideLayouts/slideLayout\(offset + 1).xml",
+                                 data: Data(Layouts.xml(layout, design: design, canvas: canvas).utf8)))
+            entries.append(.init(name: "ppt/slideLayouts/_rels/slideLayout\(offset + 1).xml.rels", data: Data("""
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\
+                <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>\
+                </Relationships>
+                """.utf8)))
+        }
+        entries.append(.init(name: "ppt/theme/theme1.xml", data: Data(theme(design).utf8)))
+
+        for (offset, font) in embed.enumerated() {
+            let name = "font\(offset + 1).fntdata"
+            entries.append(.init(name: "ppt/fonts/\(name)", data: font.data))
+            presentationRels.append("<Relationship Id=\"rId\(fontRelationBase + offset)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/font\" Target=\"fonts/\(name)\"/>")
+        }
+
+        /// Written last, because the font relationships are appended to it
+        /// after the theme — a rels file emitted early would name every part
+        /// except the fonts, and PowerPoint would drop them silently.
+        entries.append(.init(name: "ppt/_rels/presentation.xml.rels", data: Data("""
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\
             <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\
-            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>\
-            </Relationships>
+            \(presentationRels.joined())</Relationships>
             """.utf8)))
-        entries.append(.init(name: "ppt/theme/theme1.xml", data: Data(theme(design).utf8)))
 
         for (offset, part) in slideParts.enumerated() {
             entries.append(.init(name: "ppt/slides/slide\(offset + 1).xml", data: Data(part.xml.utf8)))
@@ -203,7 +228,7 @@ public enum PPTX {
     }
 
     static func slideXML(_ boxes: [Box], media: [String: String], canvas: Canvas,
-                         links: [String: String] = [:]) -> String {
+                         design: Design, links: [String: String] = [:]) -> String {
         var shapes = ""
         var id = 1
         var pictureRel = 1
@@ -219,6 +244,10 @@ public enum PPTX {
             case let .text(runs, align, anchor):
                 shapes += textBox(id: id, box: box, runs: runs, align: align,
                                   anchor: anchor, links: links)
+            case let .slideNumber(size, colour):
+                shapes += slideNumberField(id: id, box: box, size: size, colour: colour)
+            case let .table(rows, header):
+                shapes += table(id: id, box: box, rows: rows, header: header, design: design)
             case let .picture(path):
                 guard media[path] != nil else { continue }
                 pictureRel += 1
@@ -240,8 +269,9 @@ public enum PPTX {
 
     static func slideRels(_ pictures: [(rel: String, name: String)],
                           links: [(rel: String, target: String)] = [],
-                          notesSlide: Int? = nil) -> String {
-        var rels = ["<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>"]
+                          notesSlide: Int? = nil,
+                          layout: Int = 4) -> String {
+        var rels = ["<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout\(layout).xml\"/>"]
         for picture in pictures {
             rels.append("<Relationship Id=\"\(picture.rel)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/\(picture.name)\"/>")
         }
@@ -323,6 +353,14 @@ public enum PPTX {
     private static func textBox(id: Int, box: Box, runs: [Run],
                                 align: Box.Align, anchor: Box.Anchor,
                                 links: [String: String] = [:]) -> String {
+        /// A placeholder shape is not a text box, and saying it is stops
+        /// PowerPoint treating it as the slide's title.
+        let placeholder = box.placeholder.map {
+            "<p:nvPr><p:ph type=\"\($0)\"/></p:nvPr>"
+        } ?? "<p:nvPr/>"
+        let shapeProperties = box.placeholder == nil
+            ? "<p:cNvSpPr txBox=\"1\"/>"
+            : "<p:cNvSpPr><a:spLocks noGrp=\"1\"/></p:cNvSpPr>"
         let alignment = ["left": "l", "centre": "ctr", "right": "r"][align.rawValue] ?? "l"
         let anchoring = ["top": "t", "middle": "ctr", "bottom": "b"][anchor.rawValue] ?? "t"
         var paragraphs = ""
@@ -368,7 +406,7 @@ public enum PPTX {
             paragraphs += "</a:p>"
         }
         return """
-        <p:sp><p:nvSpPr><p:cNvPr id="\(id)" name="text\(id)"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>\
+        <p:sp><p:nvSpPr><p:cNvPr id="\(id)" name="text\(id)"/>\(shapeProperties)\(placeholder)</p:nvSpPr>\
         <p:spPr><a:xfrm><a:off x="\(box.x)" y="\(box.y)"/><a:ext cx="\(box.width)" cy="\(box.height)"/></a:xfrm>\
         <a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>\
         <p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" anchor="\(anchoring)">\
@@ -393,6 +431,78 @@ public enum PPTX {
             + face + link + "</a:rPr><a:t>\(escape(span.text))</a:t></a:r>"
     }
 
+    /// A slide-number field.
+    ///
+    /// `<a:fld type="slidenum">` rather than a typed digit, so moving a slide
+    /// renumbers it. The literal inside is only what a reader that cannot
+    /// evaluate the field falls back to.
+    private static func slideNumberField(id: Int, box: Box, size: Double, colour: String) -> String {
+        """
+        <p:sp><p:nvSpPr><p:cNvPr id="\(id)" name="number\(id)"/><p:cNvSpPr txBox="1"/>\
+        <p:nvPr/></p:nvSpPr>\
+        <p:spPr><a:xfrm><a:off x="\(box.x)" y="\(box.y)"/><a:ext cx="\(box.width)" cy="\(box.height)"/></a:xfrm>\
+        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>\
+        <p:txBody><a:bodyPr wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" anchor="ctr"/><a:lstStyle/>\
+        <a:p><a:pPr algn="r"><a:buNone/></a:pPr>\
+        <a:fld id="{B4B7A2E9-0F1C-4A64-9E19-1F1E8E1C4E01}" type="slidenum">\
+        <a:rPr lang="en-GB" sz="\(Int(size * 100))" dirty="0">\
+        <a:solidFill><a:srgbClr val="\(colour)"/></a:solidFill></a:rPr>\
+        <a:t>2</a:t></a:fld></a:p></p:txBody></p:sp>
+        """
+    }
+
+    /// A table, as a graphic frame.
+    ///
+    /// A real `<a:tbl>` rather than a picture of one, so the person you hand
+    /// the deck to can edit a cell — which is the entire reason this writes
+    /// PowerPoint instead of a PDF.
+    private static func table(id: Int, box: Box, rows: [[String]],
+                              header: Bool, design: Design) -> String {
+        let columns = rows.map(\.count).max() ?? 1
+        let width = box.width / max(1, columns)
+        let height = box.height / max(1, rows.count)
+        let grid = (0..<columns).map { _ in "<a:gridCol w=\"\(width)\"/>" }.joined()
+
+        var body = ""
+        for (index, row) in rows.enumerated() {
+            let isHeader = header && index == 0
+            var cells = ""
+            for column in 0..<columns {
+                let text = column < row.count ? row[column] : ""
+                let spans = Inline.spans(text)
+                var paragraph = "<a:p><a:pPr algn=\"l\"/>"
+                for span in spans where !span.text.isEmpty {
+                    paragraph += "<a:r><a:rPr lang=\"en-GB\" sz=\"\(Int(design.captionSize * 100))\" "
+                        + "b=\"\(isHeader || span.bold ? 1 : 0)\"\(span.italic ? " i=\"1\"" : "") dirty=\"0\">"
+                        + "<a:solidFill><a:srgbClr val=\"\(isHeader ? design.heading : design.body)\"/></a:solidFill>"
+                        + (span.code ? "<a:latin typeface=\"Menlo\"/>" : "")
+                        + "</a:rPr><a:t>\(escape(span.text))</a:t></a:r>"
+                }
+                if spans.allSatisfy({ $0.text.isEmpty }) { paragraph += "" }
+                paragraph += "</a:p>"
+                /// No fill and a single hairline under each row: a table with
+                /// banded colour fights every design in here, and a rule is
+                /// what a designed table actually uses.
+                cells += "<a:tc><a:txBody><a:bodyPr/><a:lstStyle/>\(paragraph)</a:txBody>"
+                    + "<a:tcPr marL=\"91440\" marR=\"91440\" marT=\"45720\" marB=\"45720\" anchor=\"ctr\">"
+                    + "<a:lnB w=\"12700\" cap=\"flat\"><a:solidFill><a:srgbClr val=\"\(design.body)\">"
+                    + "<a:alpha val=\"\(isHeader ? 45000 : 18000)\"/></a:srgbClr></a:solidFill></a:lnB>"
+                    + "<a:noFill/></a:tcPr></a:tc>"
+            }
+            body += "<a:tr h=\"\(height)\">\(cells)</a:tr>"
+        }
+
+        return """
+        <p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="\(id)" name="table\(id)"/>\
+        <p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>\
+        <p:xfrm><a:off x="\(box.x)" y="\(box.y)"/><a:ext cx="\(box.width)" cy="\(box.height)"/></p:xfrm>\
+        <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">\
+        <a:tbl><a:tblPr firstRow="\(header ? 1 : 0)" bandRow="0"/>\
+        <a:tblGrid>\(grid)</a:tblGrid>\(body)</a:tbl>\
+        </a:graphicData></a:graphic></p:graphicFrame>
+        """
+    }
+
     private static func picture(id: Int, box: Box, relationship: String) -> String {
         """
         <p:pic><p:nvPicPr><p:cNvPr id="\(id)" name="picture\(id)"/>\
@@ -413,18 +523,32 @@ public enum PPTX {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 
+    /// `p:embeddedFontLst`, or nothing when no font was asked for.
+    static func embeddedFontList(_ embed: [(face: Embedding.Face, data: Data)],
+                                 typeface: String, firstRelation: Int) -> String {
+        guard !embed.isEmpty else { return "" }
+        var faces = ""
+        for (offset, font) in embed.enumerated() {
+            faces += "<p:\(font.face.element) r:id=\"rId\(firstRelation + offset)\"/>"
+        }
+        /// `p:font`, not `a:font`. The schema declares the element inside
+        /// CT_EmbeddedFontListEntry and only borrows its TYPE from
+        /// DrawingML — presentationml is elementFormDefault="qualified", so
+        /// the element lives in the p: namespace. Written as a:font it
+        /// renders everywhere and fails xmllint, which is how it was caught.
+        return "<p:embeddedFontLst><p:embeddedFont><p:font typeface=\"\(escape(typeface))\"/>"
+            + faces + "</p:embeddedFont></p:embeddedFontLst>"
+    }
+
     // MARK: - The fixed parts
 
-    private static let blankLayout = """
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\
-        <p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" \
-        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" \
-        xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank" preserve="1">\
-        <p:cSld name="Blank"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>\
-        <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/>\
-        <a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld>\
-        <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>
-        """
+    /// Every layout, listed on the master so the New Slide menu shows them.
+    private static var layoutIDs: String {
+        let ids = (1...Layouts.all.count)
+            .map { "<p:sldLayoutId id=\"\(2_147_483_648 + $0)\" r:id=\"rId\($0)\"/>" }
+            .joined()
+        return "<p:sldLayoutIdLst>\(ids)</p:sldLayoutIdLst>"
+    }
 
     private static func master(_ design: Design) -> String {
         """
@@ -439,7 +563,7 @@ public enum PPTX {
         <a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld>\
         <p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" \
         accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>\
-        <p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>
+        \(layoutIDs)</p:sldMaster>
         """
     }
 

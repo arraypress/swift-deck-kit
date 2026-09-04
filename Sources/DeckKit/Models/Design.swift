@@ -27,7 +27,8 @@ public struct Design: Codable, Sendable, Equatable {
                 gradientAngle: Double = 135, cornerRadius: Double = 0,
                 card: Panel? = nil, headingTracking: Double = 0,
                 kickerTracking: Double = 1.2, lineSpacing: Double = 1,
-                kickerPill: Panel? = nil, kickerColour: String? = nil) {
+                kickerPill: Panel? = nil, kickerColour: String? = nil,
+                slideNumbers: Bool = false) {
         self.name = name
         self.description = description
         self.background = background
@@ -58,6 +59,7 @@ public struct Design: Codable, Sendable, Equatable {
         self.lineSpacing = lineSpacing
         self.kickerPill = kickerPill
         self.kickerColour = kickerColour ?? accent
+        self.slideNumbers = slideNumbers
     }
 
     /// Decoded with defaults, so a design written before the modern keys
@@ -97,6 +99,7 @@ public struct Design: Codable, Sendable, Equatable {
         lineSpacing = try value(.lineSpacing, 1.0)
         kickerPill = try box.decodeIfPresent(Panel.self, forKey: .kickerPill)
         kickerColour = try value(.kickerColour, accent)
+        slideNumbers = try value(.slideNumbers, false)
     }
 
 
@@ -169,6 +172,8 @@ public struct Design: Codable, Sendable, Equatable {
     public var kickerPill: Panel?
     /// Colour of kicker text.
     public var kickerColour: String
+    /// Whether ordinary slides carry their number.
+    public var slideNumbers: Bool
 
     // MARK: The scale
 
@@ -217,5 +222,5 @@ public struct Design: Codable, Sendable, Equatable {
         margin: 0.075, headingTop: 0.13, gap: 1.4, rule: true, bullet: "—",
         gradient: nil, bodyGradient: nil, gradientAngle: 135, cornerRadius: 0,
         card: nil, headingTracking: 0, kickerTracking: 1.2, lineSpacing: 1,
-        kickerPill: nil, kickerColour: "2C6BED")
+        kickerPill: nil, kickerColour: "2C6BED", slideNumbers: false)
 }

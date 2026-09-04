@@ -12,6 +12,7 @@ public enum DeckError: Error, LocalizedError, Equatable {
     case unsupportedImage(String)
     case cannotWrite(String)
     case previewFailed(String)
+    case notAFont(String)
 
     public var errorDescription: String? {
         switch self {
@@ -23,6 +24,7 @@ public enum DeckError: Error, LocalizedError, Equatable {
             return "\(((path as NSString).pathExtension)) is not an image PowerPoint reads — use png, jpg or gif"
         case let .cannotWrite(path): return "could not write \(path)"
         case let .previewFailed(why): return "could not render the slides: \(why)"
+        case let .notAFont(name): return "\(name) is not a TrueType or OpenType font"
         }
     }
 }

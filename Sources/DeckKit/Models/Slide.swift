@@ -42,6 +42,9 @@ public enum Slide: Sendable {
     /// Panels side by side, each with a title and a line.
     case cards(String?, panels: [(title: String, body: String)])
 
+    /// Rows and columns. The first row is the header when there was one.
+    case table(String?, rows: [[String]], header: Bool)
+
     /// The heading, for a contents listing and for `deck check`.
     public var heading: String? {
         switch self {
@@ -51,6 +54,7 @@ public enum Slide: Sendable {
         case let .image(_, _, heading): return heading
         case let .columns(text, _, _, _): return text
         case let .stat(text, _), let .cards(text, _): return text
+        case let .table(text, _, _): return text
         }
     }
 
@@ -67,6 +71,7 @@ public enum Slide: Sendable {
         case .columns: return "columns"
         case .stat: return "stat"
         case .cards: return "cards"
+        case .table: return "table"
         }
     }
 
@@ -84,6 +89,8 @@ public enum Slide: Sendable {
             return [a].compactMap { $0 } + figures.flatMap { [$0.figure, $0.label] }
         case let .cards(a, panels):
             return [a].compactMap { $0 } + panels.flatMap { [$0.title, $0.body] }
+        case let .table(a, rows, _):
+            return [a].compactMap { $0 } + rows.flatMap { $0 }
         }
     }
 
