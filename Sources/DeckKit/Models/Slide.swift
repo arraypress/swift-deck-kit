@@ -10,7 +10,7 @@ import Foundation
 /// The design decides where things go; this only says what they are. Keeping
 /// them apart is what lets the same deck take a different design without the
 /// author touching a word of it.
-public enum Slide: Sendable, Equatable {
+public enum Slide: Sendable {
 
     /// The opening slide.
     case title(String, subtitle: String?)
@@ -36,6 +36,12 @@ public enum Slide: Sendable, Equatable {
     /// Two columns of points under one heading.
     case columns(String, left: [String], right: [String], note: String?)
 
+    /// Figures with labels, set large. The shape a number deserves.
+    case stat(String?, figures: [(figure: String, label: String)])
+
+    /// Panels side by side, each with a title and a line.
+    case cards(String?, panels: [(title: String, body: String)])
+
     /// The heading, for a contents listing and for `deck check`.
     public var heading: String? {
         switch self {
@@ -44,6 +50,7 @@ public enum Slide: Sendable, Equatable {
         case let .statement(text, _), let .quote(text, _): return text
         case let .image(_, _, heading): return heading
         case let .columns(text, _, _, _): return text
+        case let .stat(text, _), let .cards(text, _): return text
         }
     }
 
@@ -58,6 +65,8 @@ public enum Slide: Sendable, Equatable {
         case .quote: return "quote"
         case .image: return "image"
         case .columns: return "columns"
+        case .stat: return "stat"
+        case .cards: return "cards"
         }
     }
 
@@ -71,6 +80,10 @@ public enum Slide: Sendable, Equatable {
         case let .statement(a, b), let .quote(a, b): return [a] + [b].compactMap { $0 }
         case let .image(_, caption, heading): return [caption, heading].compactMap { $0 }
         case let .columns(a, left, right, _): return [a] + left + right
+        case let .stat(a, figures):
+            return [a].compactMap { $0 } + figures.flatMap { [$0.figure, $0.label] }
+        case let .cards(a, panels):
+            return [a].compactMap { $0 } + panels.flatMap { [$0.title, $0.body] }
         }
     }
 
@@ -81,6 +94,26 @@ public enum Slide: Sendable, Equatable {
              let .prose(_, _, note), let .columns(_, _, _, note): return note
         default: return nil
         }
+    }
+}
+
+extension Slide: Equatable {
+    /// Compared on what is written, since the tuple payloads block the
+    /// synthesised version and the texts are what a test actually asserts.
+    public static func == (lhs: Slide, rhs: Slide) -> Bool {
+        lhs.kind == rhs.kind && lhs.heading == rhs.heading && lhs.texts == rhs.texts
+    }
+}
+
+/// A small label above a heading — the most recognisable single mark of a
+/// modern deck, and the cheapest.
+public struct Kicked: Sendable, Equatable {
+    public let kicker: String?
+    public let slide: Slide
+
+    public init(kicker: String?, slide: Slide) {
+        self.kicker = kicker
+        self.slide = slide
     }
 }
 

@@ -296,3 +296,143 @@ final class PPTXTests: XCTestCase {
         }
     }
 }
+
+// MARK: - The modern half
+
+final class ModernGrammarTests: XCTestCase {
+
+    func testAnEqualsLineMakesAStat() {
+        let deck = Markdown.deck(from: "## Numbers\n= 91 | tools installed\n= 0 | keys required")
+        guard case let .stat(heading, figures) = deck.slides[0] else {
+            return XCTFail("got \(deck.slides[0].kind)")
+        }
+        XCTAssertEqual(heading, "Numbers")
+        XCTAssertEqual(figures.map(\.figure), ["91", "0"])
+        XCTAssertEqual(figures.map(\.label), ["tools installed", "keys required"])
+    }
+
+    func testAStatWithNoLabelIsStillAStat() {
+        let deck = Markdown.deck(from: "= 91")
+        guard case let .stat(_, figures) = deck.slides[0] else { return XCTFail() }
+        XCTAssertEqual(figures[0].figure, "91")
+        XCTAssertEqual(figures[0].label, "")
+    }
+
+    func testADoubleColonMakesACard() {
+        let deck = Markdown.deck(from: "## Promises\n:: Keyless | nothing to sign up for\n:: Local | nothing leaves")
+        guard case let .cards(_, panels) = deck.slides[0] else {
+            return XCTFail("got \(deck.slides[0].kind)")
+        }
+        XCTAssertEqual(panels.map(\.title), ["Keyless", "Local"])
+        XCTAssertEqual(panels[0].body, "nothing to sign up for")
+    }
+
+    func testStatsAndCardsKeepEveryWord() {
+        let deck = Markdown.deck(from: "## H\n= 91 | tools\n\n## C\n:: Title | body")
+        let written = deck.slides.flatMap(\.texts).joined(separator: " ")
+        for word in ["91", "tools", "Title", "body"] {
+            XCTAssertTrue(written.contains(word), "\(word) was dropped")
+        }
+    }
+}
+
+final class ModernDesignTests: XCTestCase {
+
+    func testTheModernDesignsCarryTheModernKnobs() throws {
+        for name in ["aurora", "daylight"] {
+            let design = try Designs.named(name)
+            XCTAssertNotNil(design.gradient, "\(name) has no gradient")
+            XCTAssertNotNil(design.card, "\(name) has no card")
+            XCTAssertLessThan(design.headingTracking, 0, "\(name): display type wants negative tracking")
+            XCTAssertLessThan(design.lineSpacing, 1, "\(name): display type wants tightening")
+        }
+    }
+
+    func testTheRestrainedDesignsStillLoadWithoutThem() throws {
+        // They predate the modern keys, and a decoder that required them
+        // would have broken all four.
+        for name in ["studio", "mono", "warm", "slate"] {
+            let design = try Designs.named(name)
+            XCTAssertNil(design.gradient, name)
+            XCTAssertEqual(design.headingTracking, 0, name)
+            XCTAssertEqual(design.lineSpacing, 1, name)
+        }
+    }
+
+    func testLineHeightAccountsForTightenedSpacing() {
+        // A checker that ignored lineSpacing flagged the title slide of every
+        // modern design as overflowing when it fitted perfectly well.
+        var design = Design.fallback
+        design.lineSpacing = 0.9
+        XCTAssertLessThan(design.lineHeight(40), Design.fallback.lineHeight(40))
+    }
+
+    func testEveryDesignRendersEverySlideShapeWithoutOverflowing() throws {
+        let deck = Markdown.deck(from: """
+            # A title
+            a subtitle
+
+            ## Numbers
+            = 91 | tools installed
+            = 38 | in the tap
+
+            ## Promises
+            :: Keyless | nothing to sign up for
+            :: Local | nothing leaves the machine
+
+            ## Points
+            - one
+            - two
+            """)
+        for design in Designs.all {
+            XCTAssertTrue(Check.problems(in: deck, design: design).isEmpty,
+                          "\(design.name) overflows on an ordinary deck")
+        }
+    }
+}
+
+final class ModernOutputTests: XCTestCase {
+
+    func testAGradientDesignWritesAGradientFill() throws {
+        let design = try Designs.named("aurora")
+        let deck = Deck(slides: [.title("T", subtitle: nil)])
+        let text = String(decoding: try PPTX.data(deck: deck, design: design), as: UTF8.self)
+        XCTAssertTrue(text.contains("<a:gradFill"))
+        XCTAssertTrue(text.contains("<a:gs pos="))
+    }
+
+    func testACardIsRoundedTranslucentAndShadowed() throws {
+        let design = try Designs.named("aurora")
+        let deck = Deck(slides: [.stat("N", figures: [(figure: "91", label: "tools")])])
+        let text = String(decoding: try PPTX.data(deck: deck, design: design), as: UTF8.self)
+        XCTAssertTrue(text.contains("prst=\"roundRect\""))
+        XCTAssertTrue(text.contains("<a:alpha val="))
+        XCTAssertTrue(text.contains("<a:outerShdw"))
+    }
+
+    func testNegativeTrackingIsWritten() throws {
+        let design = try Designs.named("aurora")
+        let deck = Deck(slides: [.title("T", subtitle: nil)])
+        let text = String(decoding: try PPTX.data(deck: deck, design: design), as: UTF8.self)
+        XCTAssertTrue(text.contains("spc=\"-"), "no negative letter-spacing reached the file")
+    }
+
+    func testLineSpacingComesBeforeSpaceBefore() throws {
+        // The schema requires that order. Written the other way round it
+        // renders in Quick Look and `xmllint --schema pml.xsd` rejects it —
+        // a lenient previewer hides it, PowerPoint might not.
+        let design = try Designs.named("aurora")
+        let deck = Deck(slides: [.title("T", subtitle: "s")])
+        let text = String(decoding: try PPTX.data(deck: deck, design: design), as: UTF8.self)
+        guard let paragraph = text.range(of: "<a:lnSpc"), let before = text.range(of: "<a:spcBef") else {
+            return XCTFail("expected both elements")
+        }
+        XCTAssertLessThan(paragraph.lowerBound, before.lowerBound)
+    }
+
+    func testAFlatDesignWritesNoGradient() throws {
+        let text = String(decoding: try PPTX.data(deck: Deck(slides: [.title("T", subtitle: nil)]),
+                                                  design: try Designs.named("mono")), as: UTF8.self)
+        XCTAssertFalse(text.contains("<a:gradFill"))
+    }
+}

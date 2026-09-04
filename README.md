@@ -14,7 +14,9 @@ let slides = try Preview.render(deck: deck, design: design,  // one PNG per slid
 Check.problems(in: deck, design: design)                     // what will not fit
 ```
 
-Four designs — `studio`, `mono`, `warm`, `slate` — or your own JSON.
+Six designs. Two modern — `aurora` (dark) and `daylight` (light), with
+gradient grounds, translucent rounded cards and tight display type — and four
+restrained: `studio`, `mono`, `warm`, `slate`. Or your own JSON.
 
 ## Why a .pptx and not a PDF
 
@@ -25,11 +27,13 @@ four.
 ## The grammar
 
 ```
-# Title, then a section divider          ## A slide heading
-- a point                                | splits the points into two columns
-> a quotation                            — an attribution, under a quote
-! a statement, set large                 ![caption](picture.png)
-??? presenter notes                      --- an explicit break
+# Title, then a section divider     ## A slide heading
+- a point                          | splits the points into two columns
+> a quotation                      — an attribution, under a quote
+! a statement, set large           ![caption](picture.png)
+= 91 | tools installed             a figure and what it counts
+:: Keyless | nothing to sign up    a card
+??? presenter notes                --- an explicit break
 ```
 
 Small on purpose: an author should hold it in their head. Headings, statements,
@@ -54,6 +58,25 @@ deck**. A PDF drawn from the same layout model would only show what the model
 intended; this shows what a reader sees, including PowerPoint's own line
 breaking — the part a generator does not control.
 
+## The modern vocabulary
+
+All of it is in OOXML and none of it was used at first, which is most of why
+the first decks looked a decade old: flat fills, square corners, no depth, no
+transparency, no tracking.
+
+- **Gradient grounds** (`gradFill`), on feature slides and body slides alike
+- **Rounded, translucent cards** (`roundRect` + `alpha`) with **soft shadows**
+  (`outerShdw`) and hairline borders
+- **Negative letter-spacing** (`spc`) on display type — the single change that
+  most separates a modern heading from a dated one
+- **Tightened line spacing** (`lnSpc`) for large headings
+- **Stat** and **card** slide shapes, which a modern deck is built from
+
+**Fonts are measured, not assumed.** `SF Pro Display`, `SF Pro Text` and
+`Inter` do **not** resolve on macOS by those names — they fall back to a serif,
+which is exactly what a dated deck looks like. `Avenir Next` does, and is the
+best modern geometric sans available; the modern designs use it.
+
 ## One rhythm, not a number per slide
 
 Type sizes are `base × ratio^step`, rounded to whole points. Vertical
@@ -71,6 +94,9 @@ Three faults found by looking at the render rather than the code:
   remembered look like an ordinary one. It is two steps larger.
 - **`columns` had no grammar**, so the layout could never fire and every
   comparison came out as one long list.
+- **`lnSpc` must come before `spcBef`.** Written the other way round it renders
+  in Quick Look and `xmllint --schema pml.xsd` rejects it — a lenient
+  previewer hides what PowerPoint might not forgive.
 
 ## `Check` is an estimate, and says so
 
@@ -82,7 +108,7 @@ they differed, it reported a problem the layout did not have.
 
 ## Tested
 
-28 tests: the grammar keeping every word, a quote's attribution staying with
+41 tests: the grammar keeping every word, a quote's attribution staying with
 its quote, a picture keeping the heading above it, the heading landing in the
 same place on every slide shape, nothing placed outside the canvas, the same
 deck writing byte-identical output, and `&`/`<` escaped while typographic

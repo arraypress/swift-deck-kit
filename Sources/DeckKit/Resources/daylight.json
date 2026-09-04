@@ -1,0 +1,41 @@
+{
+  "name": "daylight",
+  "description": "Soft light gradient, white cards, tight display type.",
+  "background": "F7F8FC",
+  "featureBackground": "111827",
+  "heading": "0F172A",
+  "body": "5A6478",
+  "featureBody": "A9B2C4",
+  "featureHeading": "FFFFFF",
+  "accent": "4F46E5",
+  "kickerColour": "4F46E5",
+  "headingFont": "Avenir Next",
+  "bodyFont": "Avenir Next",
+  "base": 21,
+  "ratio": 1.34,
+  "leading": 0.72,
+  "headingBold": true,
+  "margin": 0.075,
+  "headingTop": 0.13,
+  "gap": 1.6,
+  "rule": false,
+  "bullet": "—",
+  "gradientAngle": 135,
+  "gradient": [
+    { "colour": "111827", "position": 0.0 },
+    { "colour": "1E1B4B", "position": 1.0 }
+  ],
+  "bodyGradient": [
+    { "colour": "FFFFFF", "position": 0.0 },
+    { "colour": "EEF1F8", "position": 1.0 }
+  ],
+  "cornerRadius": 0.06,
+  "headingTracking": -0.9,
+  "kickerTracking": 2.2,
+  "lineSpacing": 0.92,
+  "card": {
+    "fill": "FFFFFF", "fillAlpha": 1,
+    "border": "0F172A", "borderAlpha": 0.09, "borderWidth": 1,
+    "radius": 0.06, "shadow": true
+  }
+}

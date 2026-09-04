@@ -102,6 +102,8 @@ public enum Markdown {
         var heading: String?
         var level = 0
         var points: [String] = []
+        var figures: [(figure: String, label: String)] = []
+        var panels: [(title: String, body: String)] = []
         var rightPoints: [String] = []
         var inRightColumn = false
         var prose: [String] = []
@@ -134,6 +136,18 @@ public enum Markdown {
                 quote.append(line.dropFirst().trimmingCharacters(in: .whitespaces))
             } else if line.hasPrefix("!") {
                 statement = line.dropFirst().trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("= ") {
+                /// `= 91 | tools installed` — a figure and what it counts.
+                /// The pipe separates them because a label legitimately
+                /// contains every other punctuation mark going.
+                let parts = line.dropFirst(2).split(separator: "|", maxSplits: 1)
+                figures.append((figure: parts[0].trimmingCharacters(in: .whitespaces),
+                                label: parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""))
+            } else if line.hasPrefix(":: ") {
+                /// `:: Title | a line about it` — one card.
+                let parts = line.dropFirst(3).split(separator: "|", maxSplits: 1)
+                panels.append((title: parts[0].trimmingCharacters(in: .whitespaces),
+                               body: parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""))
             } else if line == "|" {
                 /// A lone pipe splits the points into two columns. Without a
                 /// grammar for it the `columns` layout could never fire, and
@@ -162,6 +176,12 @@ public enum Markdown {
         if let statement {
             return .statement(statement, attribution: attribution ?? prose.first)
         }
+        /// Before the heading guard: a stat or a card block is a slide in its
+        /// own right, and checking after it meant `= 91` on a line by itself
+        /// produced no slide at all.
+        if !figures.isEmpty { return .stat(heading, figures: figures) }
+        if !panels.isEmpty { return .cards(heading, panels: panels) }
+
         guard let heading else {
             /// A block of prose with no heading at all is still worth a
             /// slide — dropping the author's words silently is the one thing

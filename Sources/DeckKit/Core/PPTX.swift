@@ -152,7 +152,11 @@ public enum PPTX {
             id += 1
             switch box.content {
             case let .fill(colour):
-                shapes += rectangle(id: id, box: box, colour: colour)
+                shapes += shape(id: id, box: box, panel: .flat(colour), canvas: canvas)
+            case let .panel(panel):
+                shapes += shape(id: id, box: box, panel: panel, canvas: canvas)
+            case let .gradient(stops, angle):
+                shapes += gradient(id: id, box: box, stops: stops, angle: angle)
             case let .text(runs, align, anchor):
                 shapes += textBox(id: id, box: box, runs: runs, align: align, anchor: anchor)
             case let .picture(path):
@@ -186,14 +190,61 @@ public enum PPTX {
             """
     }
 
-    private static func rectangle(id: Int, box: Box, colour: String) -> String {
-        """
+    /// A filled shape: flat or rounded, opaque or translucent, with or
+    /// without a soft shadow.
+    ///
+    /// `roundRect`'s adjust is a percentage of **half the shorter side**, so
+    /// a radius given as a fraction of the shorter side doubles on the way in.
+    private static func shape(id: Int, box: Box, panel: Panel, canvas: Canvas) -> String {
+        let rounded = panel.radius > 0
+        let adjust = min(50_000, Int(panel.radius * 2 * 100_000))
+        let geometry = rounded
+            ? "<a:prstGeom prst=\"roundRect\"><a:avLst><a:gd name=\"adj\" fmla=\"val \(adjust)\"/></a:avLst></a:prstGeom>"
+            : "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>"
+        let fill = "<a:solidFill>\(colour(panel.fill, alpha: panel.fillAlpha))</a:solidFill>"
+        let line = panel.border.map {
+            "<a:ln w=\(Canvas.points(panel.borderWidth).quoted)><a:solidFill>\(colour($0, alpha: panel.borderAlpha))</a:solidFill></a:ln>"
+        } ?? "<a:ln><a:noFill/></a:ln>"
+        /// Blur and offset in EMU. Generous blur and a short drop is what
+        /// reads as a soft modern shadow rather than a 2007 bevel.
+        let effect = panel.shadow
+            ? "<a:effectLst><a:outerShdw blurRad=\"400000\" dist=\"140000\" dir=\"5400000\" rotWithShape=\"0\">"
+              + "<a:srgbClr val=\"000000\"><a:alpha val=\"32000\"/></a:srgbClr></a:outerShdw></a:effectLst>"
+            : ""
+        return """
         <p:sp><p:nvSpPr><p:cNvPr id="\(id)" name="fill\(id)"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>\
         <p:spPr><a:xfrm><a:off x="\(box.x)" y="\(box.y)"/><a:ext cx="\(box.width)" cy="\(box.height)"/></a:xfrm>\
-        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>\
-        <a:solidFill><a:srgbClr val="\(colour)"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr>\
+        \(geometry)\(fill)\(line)\(effect)</p:spPr>\
         <p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp>
         """
+    }
+
+    /// A gradient ground.
+    ///
+    /// OOXML's angle is in sixtieths of a degree and runs clockwise from
+    /// "left to right", so 135° here is the top-left to bottom-right sweep a
+    /// person means when they say diagonal.
+    private static func gradient(id: Int, box: Box, stops: [Stop], angle: Double) -> String {
+        let list = stops
+            .sorted { $0.position < $1.position }
+            .map { "<a:gs pos=\"\(Int(min(max($0.position, 0), 1) * 100_000))\"><a:srgbClr val=\"\($0.colour)\"/></a:gs>" }
+            .joined()
+        return """
+        <p:sp><p:nvSpPr><p:cNvPr id="\(id)" name="ground\(id)"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>\
+        <p:spPr><a:xfrm><a:off x="\(box.x)" y="\(box.y)"/><a:ext cx="\(box.width)" cy="\(box.height)"/></a:xfrm>\
+        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>\
+        <a:gradFill rotWithShape="1"><a:gsLst>\(list)</a:gsLst>\
+        <a:lin ang="\(Int(angle.truncatingRemainder(dividingBy: 360) * 60_000))" scaled="0"/></a:gradFill>\
+        <a:ln><a:noFill/></a:ln></p:spPr>\
+        <p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp>
+        """
+    }
+
+    /// A colour, with an alpha child only when it is not opaque.
+    private static func colour(_ hex: String, alpha: Double) -> String {
+        alpha >= 1
+            ? "<a:srgbClr val=\"\(hex)\"/>"
+            : "<a:srgbClr val=\"\(hex)\"><a:alpha val=\"\(Int(max(0, alpha) * 100_000))\"/></a:srgbClr>"
     }
 
     private static func textBox(id: Int, box: Box, runs: [Run], align: Box.Align, anchor: Box.Anchor) -> String {
@@ -201,12 +252,21 @@ public enum PPTX {
         let anchoring = ["top": "t", "middle": "ctr", "bottom": "b"][anchor.rawValue] ?? "t"
         var paragraphs = ""
         for run in runs {
+            /// **Order matters**: the schema requires lnSpc before spcBef.
+            /// Written the other way round it renders in Quick Look and is
+            /// rejected by `xmllint --schema pml.xsd`, which is how it was
+            /// caught — a lenient previewer hides it, PowerPoint might not.
+            let spacing = run.lineSpacing.map {
+                "<a:lnSpc><a:spcPct val=\"\(Int($0 * 100_000))\"/></a:lnSpc>"
+            } ?? ""
             let before = run.spaceBefore > 0
                 ? "<a:spcBef><a:spcPts val=\"\(Int(run.spaceBefore * 100))\"/></a:spcBef>"
                 : ""
+            /// Letter-spacing is in hundredths of a point and may be negative.
+            let tracking = run.tracking != 0 ? " spc=\"\(Int(run.tracking * 100))\"" : ""
             paragraphs += """
-                <a:p><a:pPr algn="\(alignment)">\(before)</a:pPr><a:r>\
-                <a:rPr lang="en-GB" sz="\(Int(run.size * 100))" b="\(run.bold ? 1 : 0)" dirty="0">\
+                <a:p><a:pPr algn="\(alignment)">\(spacing)\(before)</a:pPr><a:r>\
+                <a:rPr lang="en-GB" sz="\(Int(run.size * 100))" b="\(run.bold ? 1 : 0)"\(tracking) dirty="0">\
                 <a:solidFill><a:srgbClr val="\(run.colour)"/></a:solidFill>\
                 </a:rPr><a:t>\(escape(run.text))</a:t></a:r></a:p>
                 """

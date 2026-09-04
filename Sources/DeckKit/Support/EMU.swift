@@ -33,3 +33,8 @@ public struct Canvas: Sendable, Equatable {
     /// Points to EMU. A point is 1/72 inch.
     public static func points(_ value: Double) -> Int { Int(value / 72 * perInch) }
 }
+
+extension Int {
+    /// The value as a quoted XML attribute.
+    var quoted: String { "\"\(self)\"" }
+}

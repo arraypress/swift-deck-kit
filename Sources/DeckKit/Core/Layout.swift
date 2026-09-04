@@ -12,6 +12,10 @@ public struct Box: Sendable, Equatable {
     public enum Content: Sendable, Equatable {
         case text([Run], align: Align, anchor: Anchor)
         case fill(String)
+        /// A rounded, possibly translucent and shadowed card.
+        case panel(Panel)
+        /// A gradient ground, which is what a flat colour used to be.
+        case gradient([Stop], angle: Double)
         case picture(String)
     }
     public enum Align: String, Sendable { case left, centre, right }
@@ -29,14 +33,22 @@ public struct Run: Sendable, Equatable {
     public let colour: String
     /// Space before this line, in points.
     public let spaceBefore: Double
+    /// Letter-spacing in points. Negative tightens large type, which is the
+    /// single change that most separates a modern heading from a dated one.
+    public let tracking: Double
+    /// Line spacing as a multiple, or nil for the font's own.
+    public let lineSpacing: Double?
 
     public init(_ text: String, size: Double, bold: Bool = false,
-                colour: String, spaceBefore: Double = 0) {
+                colour: String, spaceBefore: Double = 0,
+                tracking: Double = 0, lineSpacing: Double? = nil) {
         self.text = text
         self.size = size
         self.bold = bold
         self.colour = colour
         self.spaceBefore = spaceBefore
+        self.tracking = tracking
+        self.lineSpacing = lineSpacing
     }
 }
 
@@ -62,6 +74,9 @@ public struct Layout: Sendable {
     private var gap: Int { Canvas.points(design.bodySize * design.gap) }
 
     public func boxes(for slide: Slide) -> [Box] {
+        /// A gradient ground on ordinary slides as well, when the design asks
+        /// for one — a modern deck is rarely flat white.
+        let ordinary = ground(feature: false).map { [$0] } ?? []
         switch slide {
         case let .title(text, subtitle):
             return feature(text, size: design.titleSize, secondary: subtitle)
@@ -70,7 +85,7 @@ public struct Layout: Sendable {
             return feature(text, size: design.sectionSize, secondary: note)
 
         case let .points(heading, items, _):
-            let head = self.heading(heading)
+            let head = ordinary + self.heading(heading)
             let leading = design.bodySize * design.leading
             let runs = items.enumerated().map { index, item in
                 Run(design.bullet.isEmpty ? item : "\(design.bullet)  \(item)",
@@ -84,7 +99,7 @@ public struct Layout: Sendable {
             /// is 120 characters a line, which nobody reads from the back of
             /// a room; 60 to 75 is the range that does.
             let top = bodyTop
-            return self.heading(heading) + [
+            return ordinary + self.heading(heading) + [
                 Box(x: margin, y: top, width: Int(Double(contentWidth) * 0.72),
                     height: canvas.height - top - canvas.down(0.12),
                     content: .text([Run(text, size: design.bodySize, colour: design.body)],
@@ -102,7 +117,7 @@ public struct Layout: Sendable {
                 runs.append(Run(attribution, size: design.size(1), colour: design.body,
                                 spaceBefore: design.bodySize * 1.3))
             }
-            return [Box(x: margin, y: canvas.down(0.2), width: contentWidth,
+            return ordinary + [Box(x: margin, y: canvas.down(0.2), width: contentWidth,
                         height: canvas.down(0.6),
                         content: .text(runs, align: .left, anchor: .middle))]
 
@@ -114,14 +129,13 @@ public struct Layout: Sendable {
                                 colour: design.featureBody,
                                 spaceBefore: design.bodySize * 1.3))
             }
-            return [Box(x: 0, y: 0, width: canvas.width, height: canvas.height,
-                        content: .fill(design.featureBackground)),
+            return [ground(feature: true)].compactMap { $0 } + [
                     Box(x: margin, y: canvas.down(0.2), width: contentWidth,
                         height: canvas.down(0.6),
                         content: .text(runs, align: .left, anchor: .middle))]
 
         case let .image(path, caption, heading):
-            var boxes = heading.map(self.heading) ?? []
+            var boxes = ordinary + (heading.map(self.heading) ?? [])
             let top = heading == nil ? canvas.down(0.08) : bodyTop
             let bottom = caption == nil ? canvas.down(0.92) : canvas.down(0.84)
             boxes.append(Box(x: margin, y: top, width: contentWidth, height: bottom - top,
@@ -135,8 +149,75 @@ public struct Layout: Sendable {
             }
             return boxes
 
+        case let .stat(heading, figures):
+            /// Figures on cards when the design has one, bare when it does
+            /// not — a stat slide is the one place a deck can be loud, and a
+            /// number set small is a number nobody remembers.
+            let head = ordinary + (heading.map(self.heading) ?? [])
+            /// Deep, and centred in what is left. A stat band pinned to the
+            /// top of the body area left the bottom third of every slide
+            /// empty and the figures looking stranded.
+            let bottom = canvas.down(0.86)
+            let available = bottom - (heading == nil ? canvas.down(0.2) : bodyTop)
+            let depth = min(available, canvas.down(0.40))
+            let top = (heading == nil ? canvas.down(0.2) : bodyTop) + (available - depth) / 2
+            let count = max(1, figures.count)
+            let gutter = canvas.across(0.025)
+            let width = (contentWidth - gutter * (count - 1)) / count
+            var boxes = head
+            for (index, figure) in figures.enumerated() {
+                let x = margin + (width + gutter) * index
+                if let card = design.card {
+                    boxes.append(Box(x: x, y: top, width: width, height: depth,
+                                     content: .panel(card)))
+                }
+                let inset = design.card == nil ? 0 : canvas.across(0.018)
+                boxes.append(Box(x: x + inset, y: top, width: width - inset * 2, height: depth,
+                                 content: .text([
+                                    Run(figure.figure, size: design.size(4), bold: design.headingBold,
+                                        colour: design.heading, tracking: design.headingTracking,
+                                        lineSpacing: design.lineSpacing),
+                                    Run(figure.label, size: design.size(-1) * 1.15, colour: design.body,
+                                        spaceBefore: design.bodySize * 0.55,
+                                        tracking: design.kickerTracking * 0.5),
+                                 ], align: .left, anchor: .middle)))
+            }
+            return boxes
+
+        case let .cards(heading, panels):
+            let head = ordinary + (heading.map(self.heading) ?? [])
+            let bottom = canvas.down(0.86)
+            let available = bottom - (heading == nil ? canvas.down(0.2) : bodyTop)
+            let depth = min(available, canvas.down(0.46))
+            let top = (heading == nil ? canvas.down(0.2) : bodyTop) + (available - depth) / 2
+            let count = max(1, panels.count)
+            let gutter = canvas.across(0.025)
+            let width = (contentWidth - gutter * (count - 1)) / count
+            var boxes = head
+            for (index, panel) in panels.enumerated() {
+                let x = margin + (width + gutter) * index
+                if let card = design.card {
+                    boxes.append(Box(x: x, y: top, width: width, height: depth,
+                                     content: .panel(card)))
+                }
+                let inset = design.card == nil ? 0 : canvas.across(0.018)
+                boxes.append(Box(x: x + inset, y: top + canvas.down(0.045),
+                                 width: width - inset * 2, height: depth - canvas.down(0.09),
+                                 content: .text([
+                                    Run(panel.title, size: design.size(1), bold: design.headingBold,
+                                        colour: design.heading, tracking: design.headingTracking * 0.5),
+                                    /// Body size, not caption. A card is not a
+                                    /// footnote, and at one step down the text
+                                    /// was smaller than the bullets beside it.
+                                    Run(panel.body, size: design.bodySize, colour: design.body,
+                                        spaceBefore: design.bodySize * 0.7,
+                                        lineSpacing: 1.05),
+                                 ], align: .left, anchor: .top)))
+            }
+            return boxes
+
         case let .columns(heading, left, right, _):
-            let head = self.heading(heading)
+            let head = ordinary + self.heading(heading)
             let leading = design.bodySize * design.leading
             let gutter = canvas.across(0.04)
             let column = (contentWidth - gutter) / 2
@@ -175,7 +256,9 @@ public struct Layout: Sendable {
         var boxes = [Box(x: margin, y: top, width: contentWidth,
                          height: ruleY - top - Canvas.points(design.headingSize * 0.3),
                          content: .text([Run(text, size: design.headingSize,
-                                             bold: design.headingBold, colour: design.heading)],
+                                             bold: design.headingBold, colour: design.heading,
+                                             tracking: design.headingTracking,
+                                             lineSpacing: design.lineSpacing)],
                                         align: .left, anchor: .bottom))]
         if design.rule {
             /// Under the heading's band rather than under the text itself:
@@ -214,11 +297,23 @@ public struct Layout: Sendable {
             content: .text(runs, align: .left, anchor: .middle))
     }
 
-    /// Title and section slides: full-bleed colour, text on the lower third.
+    /// The whole slide, as a gradient when the design has one.
+    private func ground(feature: Bool) -> Box? {
+        let stops = feature ? design.gradient : design.bodyGradient
+        if let stops, stops.count >= 2 {
+            return Box(x: 0, y: 0, width: canvas.width, height: canvas.height,
+                       content: .gradient(stops, angle: design.gradientAngle))
+        }
+        guard feature else { return nil }
+        return Box(x: 0, y: 0, width: canvas.width, height: canvas.height,
+                   content: .fill(design.featureBackground))
+    }
+
+    /// Title and section slides: full-bleed ground, text on the lower third.
     private func feature(_ text: String, size: Double, secondary: String?) -> [Box] {
-        var boxes = [Box(x: 0, y: 0, width: canvas.width, height: canvas.height,
-                         content: .fill(design.featureBackground))]
-        var runs = [Run(text, size: size, bold: design.headingBold, colour: design.featureHeading)]
+        var boxes = [ground(feature: true)].compactMap { $0 }
+        var runs = [Run(text, size: size, bold: design.headingBold, colour: design.featureHeading,
+                        tracking: design.headingTracking, lineSpacing: design.lineSpacing)]
         if let secondary {
             runs.append(Run(secondary, size: design.bodySize, colour: design.featureBody,
                             spaceBefore: design.bodySize * 1.5))
