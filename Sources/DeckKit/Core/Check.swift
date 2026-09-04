@@ -5,7 +5,6 @@
 //  Will it fit? — asked before someone opens the deck in front of a room.
 //
 
-import CoreText
 import Foundation
 
 /// Finding text that will not fit its box.
@@ -58,7 +57,7 @@ public enum Check {
         var found: [Problem] = []
 
         for (index, slide) in deck.slides.enumerated() {
-            for box in layout.boxes(for: slide) {
+            for box in layout.boxes(for: slide, kicker: deck.kickers[index]) {
                 guard case let .text(runs, _, _) = box.content, !runs.isEmpty else { continue }
                 let needed = height(of: runs, inWidth: box.width, design: design)
                 let available = Double(box.height)
@@ -80,27 +79,10 @@ public enum Check {
 
     /// The height a set of runs needs, in EMU.
     static func height(of runs: [Run], inWidth width: Int, design: Design) -> Double {
-        var total = 0.0
-        for run in runs {
-            let lines = lineCount(run, inWidth: width, design: design)
-            total += Double(lines) * Double(Canvas.points(design.lineHeight(run.size)))
-            total += Double(Canvas.points(run.spaceBefore))
-        }
-        return total
+        TextMetrics.height(of: runs, inWidth: width, design: design)
     }
 
     static func lineCount(_ run: Run, inWidth width: Int, design: Design) -> Int {
-        let font = CTFontCreateWithName(design.bodyFont as CFString, run.size, nil)
-        let line = CTLineCreateWithAttributedString(
-            CFAttributedStringCreate(nil, run.text as CFString,
-                                     [kCTFontAttributeName: font] as CFDictionary)!)
-        let measured = CTLineGetTypographicBounds(line, nil, nil, nil)
-        /// Bold is wider, and CoreText will not tell us without the bold face
-        /// installed under a name we can guess. 6% is the usual difference
-        /// for a humanist sans, and erring wide is the safe direction here.
-        let points = measured * (run.bold ? 1.06 : 1)
-        let available = Double(width) / Canvas.perInch * 72
-        guard available > 0 else { return 1 }
-        return max(1, Int((points / available).rounded(.up)))
+        TextMetrics.lineCount(run, inWidth: width, design: design)
     }
 }

@@ -20,6 +20,7 @@ import Foundation
 /// ! a statement, set large
 /// ![](picture.png)
 /// ??? presenter notes
+/// ^ a kicker, above a heading
 /// ---
 /// ```
 ///
@@ -30,14 +31,16 @@ public enum Markdown {
 
     public static func deck(from text: String) -> Deck {
         var slides: [Slide] = []
+        var kickers: [Int: String] = [:]
         var title: String?
 
         for block in blocks(in: text) {
             guard let slide = self.slide(from: block, isFirst: slides.isEmpty) else { continue }
             if case let .title(text, _) = slide, title == nil { title = text }
+            if let kicker = kicker(in: block) { kickers[slides.count] = kicker }
             slides.append(slide)
         }
-        return Deck(title: title, slides: slides)
+        return Deck(title: title, slides: slides, kickers: kickers)
     }
 
     /// Splits on `---` **and** on any heading, so an author who never types a
@@ -78,8 +81,16 @@ public enum Markdown {
                     let text = line.trimmingCharacters(in: .whitespaces)
                     return text.isEmpty || text.hasPrefix("#")
                 }
+            /// A kicker is written ABOVE its heading, so the heading that
+            /// follows one must not start a new block — it did, and the
+            /// label landed on the slide before the one it was for.
+            let underOnlyAKicker = trimmed.hasPrefix("#") && !current.isEmpty
+                && current.allSatisfy { line in
+                    let text = line.trimmingCharacters(in: .whitespaces)
+                    return text.isEmpty || text.hasPrefix("^ ")
+                }
             if starts(trimmed), !current.isEmpty, !isAttribution(trimmed),
-               !continuingQuote, !underOnlyAHeading { flush() }
+               !continuingQuote, !underOnlyAHeading, !underOnlyAKicker { flush() }
             current.append(line)
         }
         flush()
@@ -144,7 +155,16 @@ public enum Markdown {
     /// Whether a line begins a new slide.
     static func starts(_ line: String) -> Bool {
         line.hasPrefix("#") || line.hasPrefix(">") || line.hasPrefix("![")
-            || (line.hasPrefix("!") && !line.hasPrefix("!["))
+            || (line.hasPrefix("!") && !line.hasPrefix("![")) || line.hasPrefix("^ ")
+    }
+
+    /// `^ Results` — the small label above a heading, if the block has one.
+    static func kicker(in block: [String]) -> String? {
+        block.lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { $0.hasPrefix("^ ") }
+            .map { String($0.dropFirst(2)).trimmingCharacters(in: .whitespaces) }
+            .flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// An attribution belongs to the quote or statement above it, not to a
@@ -174,7 +194,10 @@ public enum Markdown {
             let line = raw.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
 
-            if line.hasPrefix("???") {
+            if line.hasPrefix("^ ") {
+                /// Read by `kicker(in:)`; here it would only become prose.
+                continue
+            } else if line.hasPrefix("???") {
                 notes.append(line.dropFirst(3).trimmingCharacters(in: .whitespaces))
             } else if line.hasPrefix("##") {
                 heading = line.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)

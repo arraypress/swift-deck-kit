@@ -22,13 +22,28 @@
   "bullet": "—",
   "gradientAngle": 135,
   "gradient": [
-    { "colour": "0B1120", "position": 0.0 },
-    { "colour": "141C33", "position": 0.55 },
-    { "colour": "2A1B4D", "position": 1.0 }
+    {
+      "colour": "0B1120",
+      "position": 0.0
+    },
+    {
+      "colour": "141C33",
+      "position": 0.55
+    },
+    {
+      "colour": "2A1B4D",
+      "position": 1.0
+    }
   ],
   "bodyGradient": [
-    { "colour": "0B1120", "position": 0.0 },
-    { "colour": "121A2E", "position": 1.0 }
+    {
+      "colour": "0B1120",
+      "position": 0.0
+    },
+    {
+      "colour": "121A2E",
+      "position": 1.0
+    }
   ],
   "cornerRadius": 0.06,
   "headingTracking": -0.9,
@@ -36,8 +51,21 @@
   "lineSpacing": 0.92,
   "slideNumbers": true,
   "card": {
-    "fill": "FFFFFF", "fillAlpha": 0.07,
-    "border": "FFFFFF", "borderAlpha": 0.14, "borderWidth": 1,
-    "radius": 0.06, "shadow": true
+    "fill": "FFFFFF",
+    "fillAlpha": 0.07,
+    "border": "FFFFFF",
+    "borderAlpha": 0.14,
+    "borderWidth": 1,
+    "radius": 0.06,
+    "shadow": true
+  },
+  "kickerPill": {
+    "fill": "7C6BF6",
+    "fillAlpha": 0.18,
+    "border": null,
+    "borderAlpha": 0,
+    "borderWidth": 0,
+    "radius": 0.5,
+    "shadow": false
   }
 }

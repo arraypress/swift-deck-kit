@@ -422,7 +422,7 @@ final class ModernOutputTests: XCTestCase {
         // renders in Quick Look and `xmllint --schema pml.xsd` rejects it —
         // a lenient previewer hides it, PowerPoint might not.
         let design = try Designs.named("aurora")
-        let deck = Deck(slides: [.title("T", subtitle: "s")])
+        let deck = Deck(slides: [.cards("T", panels: [(title: "a", body: "b")], note: nil)])
         let text = String(decoding: try PPTX.data(deck: deck, design: design), as: UTF8.self)
         guard let paragraph = text.range(of: "<a:lnSpc"), let before = text.range(of: "<a:spcBef") else {
             return XCTFail("expected both elements")

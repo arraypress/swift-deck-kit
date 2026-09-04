@@ -42,7 +42,8 @@ public enum Preview {
 
         var rendered: [URL] = []
         for (index, slide) in deck.slides.enumerated() {
-            let single = Deck(title: deck.title, slides: [slide])
+            let single = Deck(title: deck.title, slides: [slide],
+                              kickers: deck.kickers[index].map { [0: $0] } ?? [:])
             let file = work.appendingPathComponent(String(format: "%03d.pptx", index + 1))
             /// The real slide number, not 1. Each preview is a one-slide
             /// copy, so without this every rendered page showed "1" while

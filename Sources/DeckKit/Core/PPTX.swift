@@ -41,19 +41,21 @@ public enum PPTX {
 
         var entries: [Zip.Entry] = []
         var media: [String: String] = [:]           // path → media file name
+        var sizes: [String: (width: Int, height: Int)] = [:]
         var mediaEntries: [Zip.Entry] = []
         var index = 0
         for (path, data) in images.sorted(by: { $0.key < $1.key }) {
             index += 1
             let name = "image\(index).\(((path as NSString).pathExtension).lowercased())"
             media[path] = name
+            sizes[path] = ImageSize.of(data)
             mediaEntries.append(Zip.Entry(name: "ppt/media/\(name)", data: data))
         }
 
         var slideParts: [(xml: String, rels: String)] = []
         let notedSlides = Set(noted.map(\.0))
         for (offset, slide) in deck.slides.enumerated() {
-            let boxes = layout.boxes(for: slide)
+            let boxes = layout.boxes(for: slide, kicker: deck.kickers[offset])
                 + [layout.slideNumber(for: slide, number: firstSlideNumber + offset)].compactMap { $0 }
             var pictures: [(rel: String, name: String)] = []
             for box in boxes {
@@ -71,7 +73,7 @@ public enum PPTX {
                 linkIDs[target] = rel
             }
             let number = offset + 1
-            slideParts.append((xml: slideXML(boxes, media: media, canvas: canvas,
+            slideParts.append((xml: slideXML(boxes, media: media, sizes: sizes, canvas: canvas,
                                              design: design, links: linkIDs),
                                rels: slideRels(pictures, links: linkRels,
                                                notesSlide: notedSlides.contains(number) ? number : nil,
@@ -229,7 +231,8 @@ public enum PPTX {
         return seen
     }
 
-    static func slideXML(_ boxes: [Box], media: [String: String], canvas: Canvas,
+    static func slideXML(_ boxes: [Box], media: [String: String],
+                         sizes: [String: (width: Int, height: Int)] = [:], canvas: Canvas,
                          design: Design, links: [String: String] = [:]) -> String {
         var shapes = ""
         var id = 1
@@ -245,16 +248,17 @@ public enum PPTX {
                 shapes += gradient(id: id, box: box, stops: stops, angle: angle)
             case let .text(runs, align, anchor):
                 shapes += textBox(id: id, box: box, runs: runs, align: align,
-                                  anchor: anchor, links: links)
+                                  anchor: anchor, design: design, links: links)
             case let .slideNumber(number, size, colour):
                 shapes += slideNumberField(id: id, box: box, number: number,
-                                           size: size, colour: colour)
+                                           size: size, colour: colour, face: design.bodyFont)
             case let .table(rows, header):
                 shapes += table(id: id, box: box, rows: rows, header: header, design: design)
             case let .picture(path):
                 guard media[path] != nil else { continue }
                 pictureRel += 1
-                shapes += picture(id: id, box: box, relationship: "rId\(pictureRel)")
+                shapes += picture(id: id, box: box, relationship: "rId\(pictureRel)",
+                                  size: sizes[path])
             }
         }
         return """
@@ -355,11 +359,15 @@ public enum PPTX {
 
     private static func textBox(id: Int, box: Box, runs: [Run],
                                 align: Box.Align, anchor: Box.Anchor,
-                                links: [String: String] = [:]) -> String {
+                                design: Design, links: [String: String] = [:]) -> String {
         /// A placeholder shape is not a text box, and saying it is stops
         /// PowerPoint treating it as the slide's title.
-        let placeholder = box.placeholder.map {
-            "<p:nvPr><p:ph type=\"\($0)\"/></p:nvPr>"
+        ///
+        /// A subtitle or body placeholder carries `idx="1"` to match the
+        /// one on its layout; the title kinds are matched by type alone.
+        let placeholder = box.placeholder.map { type in
+            let index = type == "subTitle" || type == "body" ? " idx=\"1\"" : ""
+            return "<p:nvPr><p:ph type=\"\(type)\"\(index)/></p:nvPr>"
         } ?? "<p:nvPr/>"
         let shapeProperties = box.placeholder == nil
             ? "<p:cNvSpPr txBox=\"1\"/>"
@@ -392,11 +400,11 @@ public enum PPTX {
             case .none:
                 bullet = "<a:buNone/>"
             case let .character(mark):
-                bullet = colour + "<a:buFont typeface=\"Arial\"/><a:buChar char=\"\(escape(mark))\"/>"
+                bullet = colour + "<a:buFont typeface=\"\(bulletFace)\"/><a:buChar char=\"\(escape(mark))\"/>"
             case .number:
                 /// Counted by PowerPoint, so inserting a line renumbers the
                 /// rest instead of leaving the author to fix it by hand.
-                bullet = colour + "<a:buFont typeface=\"Arial\"/><a:buAutoNum type=\"arabicPeriod\"/>"
+                bullet = colour + "<a:buFont typeface=\"\(bulletFace)\"/><a:buAutoNum type=\"arabicPeriod\"/>"
             }
             /// A hanging indent, so a wrapped line lines up with the text
             /// above it rather than with the bullet.
@@ -405,9 +413,9 @@ public enum PPTX {
             /// style from the master, and with none defined it overrode these
             /// and left every sub-bullet's marker at the same x while only
             /// its text moved.
-            /// Closer than it was. At 26pt the dash sat a thumb's width from
-            /// its sentence and read as a separate column of marks.
-            let step = 17.0
+            /// Measured from the bullet itself, so the text clears the dash
+            /// in every reader rather than in the one it was tuned on.
+            let step = TextMetrics.indent(for: run.marker, design: design)
             let indent = run.marker == .none && run.level == 0
                 ? ""
                 : " marL=\"\(Canvas.points(step + Double(run.level) * step))\" indent=\"-\(Canvas.points(step))\""
@@ -415,7 +423,7 @@ public enum PPTX {
             paragraphs += "<a:p><a:pPr algn=\"\(alignment)\"\(indent)>"
                 + spacing + before + bullet + "</a:pPr>"
             for span in run.spans where !span.text.isEmpty {
-                paragraphs += self.span(span, run: run, links: links)
+                paragraphs += self.span(span, run: run, design: design, links: links)
             }
             paragraphs += "</a:p>"
         }
@@ -424,23 +432,46 @@ public enum PPTX {
         <p:spPr><a:xfrm><a:off x="\(box.x)" y="\(box.y)"/><a:ext cx="\(box.width)" cy="\(box.height)"/></a:xfrm>\
         <a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>\
         <p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" anchor="\(anchoring)">\
-        <a:normAutofit/></a:bodyPr><a:lstStyle/>\(paragraphs)</p:txBody></p:sp>
+        <a:noAutofit/></a:bodyPr><a:lstStyle/>\(paragraphs)</p:txBody></p:sp>
         """
     }
 
-    /// One run of text, with whatever marks it carries.
-    private static func span(_ span: Span, run: Run, links: [String: String]) -> String {
-        let tracking = run.tracking != 0 ? " spc=\"\(Int(run.tracking * 100))\"" : ""
-        let bold = (run.bold || span.bold) ? 1 : 0
-        let italic = span.italic ? " i=\"1\"" : ""
+    /// The monospaced face for `code`.
+    static let codeFace = "Menlo"
+    /// The face bullets and numbers are set in — one every reader has.
+    static let bulletFace = "Arial"
+
+    /// The face a run is set in, by name.
+    static func face(for span: Span, run: Run, design: Design) -> String {
         /// A monospaced face for `code`, because a file name set in the body
         /// face is indistinguishable from prose — which is the whole reason
         /// somebody wrote backticks round it.
-        let face = span.code ? "<a:latin typeface=\"Menlo\"/>" : ""
+        if span.code { return codeFace }
+        return run.face == .heading ? design.headingFont : design.bodyFont
+    }
+
+    /// One run of text, with whatever marks it carries.
+    ///
+    /// **Every run names its face.** The theme carries the design's fonts,
+    /// but a text box that is not a placeholder inherits nothing from it in
+    /// Quick Look, and every deck rendered in the viewer's fallback sans
+    /// while the design said Avenir Next — measured with Impact, which is
+    /// impossible to mistake, and it came out as Helvetica. LibreOffice
+    /// went further: after one run named Menlo, every run without a face
+    /// for the rest of the slide came out in a serif.
+    private static func span(_ span: Span, run: Run, design: Design,
+                             links: [String: String]) -> String {
+        let tracking = run.tracking != 0 ? " spc=\"\(Int(run.tracking * 100))\"" : ""
+        let bold = (run.bold || span.bold) ? 1 : 0
+        let italic = span.italic ? " i=\"1\"" : ""
+        let face = "<a:latin typeface=\"\(escape(self.face(for: span, run: run, design: design)))\"/>"
         let link = span.link.flatMap { links[$0] }.map {
             "<a:hlinkClick xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" r:id=\"\($0)\"/>"
         } ?? ""
-        return "<a:r><a:rPr lang=\"en-GB\" sz=\"\(Int(run.size * 100))\" b=\"\(bold)\"\(italic)\(tracking) dirty=\"0\">"
+        /// `kern="1200"`: pair kerning on from 12pt, which is PowerPoint's
+        /// own default for new text and what display type needs — without
+        /// it "AV" and "To" sit a hair apart in every heading.
+        return "<a:r><a:rPr lang=\"en-GB\" sz=\"\(Int(run.size * 100))\" b=\"\(bold)\"\(italic) kern=\"1200\"\(tracking) dirty=\"0\">"
             + "<a:solidFill><a:srgbClr val=\"\(run.colour)\"/></a:solidFill>"
             + face + link + "</a:rPr><a:t>\(escape(span.text))</a:t></a:r>"
     }
@@ -451,7 +482,7 @@ public enum PPTX {
     /// renumbers it. The literal inside is only what a reader that cannot
     /// evaluate the field falls back to.
     private static func slideNumberField(id: Int, box: Box, number: Int,
-                                         size: Double, colour: String) -> String {
+                                         size: Double, colour: String, face: String) -> String {
         """
         <p:sp><p:nvSpPr><p:cNvPr id="\(id)" name="number\(id)"/><p:cNvSpPr txBox="1"/>\
         <p:nvPr/></p:nvSpPr>\
@@ -461,7 +492,8 @@ public enum PPTX {
         <a:p><a:pPr algn="r"><a:buNone/></a:pPr>\
         <a:fld id="{B4B7A2E9-0F1C-4A64-9E19-1F1E8E1C4E01}" type="slidenum">\
         <a:rPr lang="en-GB" sz="\(Int(size * 100))" dirty="0">\
-        <a:solidFill><a:srgbClr val="\(colour)"/></a:solidFill></a:rPr>\
+        <a:solidFill><a:srgbClr val="\(colour)"/></a:solidFill>\
+        <a:latin typeface="\(escape(face))"/></a:rPr>\
         <a:t>\(number)</a:t></a:fld></a:p></p:txBody></p:sp>
         """
     }
@@ -490,7 +522,7 @@ public enum PPTX {
                     paragraph += "<a:r><a:rPr lang=\"en-GB\" sz=\"\(Int(design.captionSize * 100))\" "
                         + "b=\"\(isHeader || span.bold ? 1 : 0)\"\(span.italic ? " i=\"1\"" : "") dirty=\"0\">"
                         + "<a:solidFill><a:srgbClr val=\"\(isHeader ? design.heading : design.body)\"/></a:solidFill>"
-                        + (span.code ? "<a:latin typeface=\"Menlo\"/>" : "")
+                        + "<a:latin typeface=\"\(escape(span.code ? codeFace : design.bodyFont))\"/>"
                         + "</a:rPr><a:t>\(escape(span.text))</a:t></a:r>"
                 }
                 if spans.allSatisfy({ $0.text.isEmpty }) { paragraph += "" }
@@ -498,8 +530,14 @@ public enum PPTX {
                 /// No fill and a single hairline under each row: a table with
                 /// banded colour fights every design in here, and a rule is
                 /// what a designed table actually uses.
+                ///
+                /// The other three edges are switched OFF by name. Left
+                /// unsaid, a reader fills them in from its own default —
+                /// LibreOffice drew a black grid round every cell.
+                let off = "<a:noFill/>"
                 cells += "<a:tc><a:txBody><a:bodyPr/><a:lstStyle/>\(paragraph)</a:txBody>"
                     + "<a:tcPr marL=\"91440\" marR=\"91440\" marT=\"45720\" marB=\"45720\" anchor=\"ctr\">"
+                    + "<a:lnL>\(off)</a:lnL><a:lnR>\(off)</a:lnR><a:lnT>\(off)</a:lnT>"
                     + "<a:lnB w=\"12700\" cap=\"flat\"><a:solidFill><a:srgbClr val=\"\(design.body)\">"
                     + "<a:alpha val=\"\(isHeader ? 45000 : 18000)\"/></a:srgbClr></a:solidFill></a:lnB>"
                     + "<a:noFill/></a:tcPr></a:tc>"
@@ -518,13 +556,22 @@ public enum PPTX {
         """
     }
 
-    private static func picture(id: Int, box: Box, relationship: String) -> String {
-        """
+    /// A picture, at its own proportions.
+    ///
+    /// `stretch` fills the frame it is given, so the frame is cut down to
+    /// the picture's shape first and centred in the box the layout offered.
+    /// Given the box itself, a 1:3 portrait arrived as a 3:1 landscape —
+    /// every diagram squashed, every photograph made fat, silently.
+    private static func picture(id: Int, box: Box, relationship: String,
+                                size: (width: Int, height: Int)?) -> String {
+        let frame = size.map { ImageSize.fit(width: $0.width, height: $0.height, in: box) }
+            ?? (x: box.x, y: box.y, width: box.width, height: box.height)
+        return """
         <p:pic><p:nvPicPr><p:cNvPr id="\(id)" name="picture\(id)"/>\
         <p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>\
         <p:blipFill><a:blip r:embed="\(relationship)"/>\
         <a:stretch><a:fillRect/></a:stretch></p:blipFill>\
-        <p:spPr><a:xfrm><a:off x="\(box.x)" y="\(box.y)"/><a:ext cx="\(box.width)" cy="\(box.height)"/></a:xfrm>\
+        <p:spPr><a:xfrm><a:off x="\(frame.x)" y="\(frame.y)"/><a:ext cx="\(frame.width)" cy="\(frame.height)"/></a:xfrm>\
         <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>
         """
     }

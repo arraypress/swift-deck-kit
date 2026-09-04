@@ -36,6 +36,7 @@ four.
 1. a numbered point                  - an indented sub-point
 **bold**  *italic*  `code`         [label](https://…)
 ??? presenter notes                --- an explicit break
+^ a kicker, above a heading
 ```
 
 Small on purpose: an author should hold it in their head. Headings, statements,
@@ -53,6 +54,14 @@ word.
 - **Quick Look** — which previews `.pptx` on a Mac with **no Keynote,
   PowerPoint or LibreOffice installed**, measured on a machine with none of
   them.
+- **LibreOffice**, headless, as a second renderer. Stricter than Quick Look
+  about geometry: it honours the hanging indents Quick Look ignores and draws
+  the table borders a writer leaves unsaid. (Headless on macOS it resolves
+  none of the system fonts, so it checks structure, not typography.)
+
+One known erratum: the first-edition XSD types `buSzPct` as a percent string
+(`85%`). PowerPoint and LibreOffice both write and read the decimal form
+(`85000`) — LibreOffice round-trips it unchanged — and so does this.
 
 That last one is why `Preview` exists. Quick Look renders only the first slide
 of a file, so each slide is rendered by previewing a **one-slide copy of the
@@ -104,6 +113,16 @@ and "Reset" did nothing. The file opened and looked right, and behaved like a
 folder of pictures.
 
 ## Carrying the typeface
+
+**The face is named on every run.** The theme carries the design's fonts, but
+a text box that is not a placeholder inherits nothing from it in Quick Look:
+set in Impact — impossible to mistake — the deck rendered in Helvetica, which
+is how every earlier deck had rendered while the design said Avenir Next.
+LibreOffice went further: after one run named Menlo, every run without a face
+for the rest of the slide came out in a serif. Measured: with the face on the
+run, Quick Look resolves Avenir Next, Helvetica Neue, Menlo, Futura, Gill
+Sans, Georgia, Trebuchet, Verdana and Impact; `SF Mono` and `Inter` it does
+not.
 
 A `.pptx` **names** fonts; it does not carry them. A deck set in a face the
 recipient has not got renders in whatever their machine substitutes — which is
@@ -160,6 +179,38 @@ Three faults found by looking at the render rather than the code:
   in Quick Look and `xmllint --schema pml.xsd` rejects it — a lenient
   previewer hides what PowerPoint might not forgive.
 
+## Measured, then placed
+
+Cards are as deep as the tallest one's content, a short list sits a little
+above the centre of its room rather than dead in it, and both columns of a
+comparison start on the same line — all from setting the text in its own face
+with CoreText (`TextMetrics`), which `Check` shares. The hanging indent is
+measured from the bullet: at 17pt the em dash touched its sentence in
+LibreOffice and PowerPoint, where the text starts exactly at the indent, and
+the 17 had been tuned on Quick Look, which pads a bullet by itself.
+
+## What a second renderer found
+
+Quick Look is lenient. Rendering the same deck through LibreOffice, and
+setting a probe deck in Impact, found six faults it had hidden:
+
+- **The design's font never reached the text** — above.
+- **Pictures were stretched to their box**: a 1:3 portrait arrived as a 3:1
+  landscape. The frame is cut to the picture's proportions (read with ImageIO,
+  without decoding) and centred in the box the layout offers.
+- **Title and subtitle shared one placeholder**, so python-pptx read the title
+  as `"Title\nSubtitle"`. They are `ctrTitle` and `subTitle`; a section's
+  line is its `body`.
+- **Tables drew a black grid** in LibreOffice: only the bottom border was
+  written, and a reader fills the other three in from its own default. All
+  four edges are stated.
+- **`normAutofit`** invited every reader to shrink text by its own rule. The
+  layout is measured, so text boxes say `noAutofit` and `Check` catches
+  overflow.
+- **The kicker was configured and never drawn.** `^ Results` above a heading
+  sets it: uppercase, tracked, in the design's kicker colour, on a pill in
+  the modern designs.
+
 ## `Check` is an estimate, and says so
 
 PowerPoint does its own line breaking, so nothing here can know exactly where
@@ -170,7 +221,7 @@ they differed, it reported a problem the layout did not have.
 
 ## Tested
 
-70 tests: the grammar keeping every word, a quote's attribution staying with
+107 tests: the grammar keeping every word, a quote's attribution staying with
 its quote, a picture keeping the heading above it, the heading landing in the
 same place on every slide shape, nothing placed outside the canvas, the same
 deck writing byte-identical output, and `&`/`<` escaped while typographic

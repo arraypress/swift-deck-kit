@@ -22,12 +22,24 @@
   "bullet": "—",
   "gradientAngle": 135,
   "gradient": [
-    { "colour": "111827", "position": 0.0 },
-    { "colour": "1E1B4B", "position": 1.0 }
+    {
+      "colour": "111827",
+      "position": 0.0
+    },
+    {
+      "colour": "1E1B4B",
+      "position": 1.0
+    }
   ],
   "bodyGradient": [
-    { "colour": "FFFFFF", "position": 0.0 },
-    { "colour": "EEF1F8", "position": 1.0 }
+    {
+      "colour": "FFFFFF",
+      "position": 0.0
+    },
+    {
+      "colour": "EEF1F8",
+      "position": 1.0
+    }
   ],
   "cornerRadius": 0.06,
   "headingTracking": -0.9,
@@ -35,8 +47,21 @@
   "lineSpacing": 0.92,
   "slideNumbers": true,
   "card": {
-    "fill": "FFFFFF", "fillAlpha": 1,
-    "border": "0F172A", "borderAlpha": 0.09, "borderWidth": 1,
-    "radius": 0.06, "shadow": true
+    "fill": "FFFFFF",
+    "fillAlpha": 1,
+    "border": "0F172A",
+    "borderAlpha": 0.09,
+    "borderWidth": 1,
+    "radius": 0.06,
+    "shadow": true
+  },
+  "kickerPill": {
+    "fill": "4F46E5",
+    "fillAlpha": 0.1,
+    "border": null,
+    "borderAlpha": 0,
+    "borderWidth": 0,
+    "radius": 0.5,
+    "shadow": false
   }
 }

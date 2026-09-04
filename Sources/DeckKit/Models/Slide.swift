@@ -124,25 +124,20 @@ extension Slide: Equatable {
     }
 }
 
-/// A small label above a heading — the most recognisable single mark of a
-/// modern deck, and the cheapest.
-public struct Kicked: Sendable, Equatable {
-    public let kicker: String?
-    public let slide: Slide
-
-    public init(kicker: String?, slide: Slide) {
-        self.kicker = kicker
-        self.slide = slide
-    }
-}
-
 /// A deck: slides, and what to call it.
 public struct Deck: Sendable, Equatable {
     public var title: String?
     public var slides: [Slide]
+    /// The small label above a slide's heading, by slide index.
+    ///
+    /// Kept beside the slides rather than inside each case, so a kicker can
+    /// sit on any shape without every pattern match in the layout growing a
+    /// field it ignores.
+    public var kickers: [Int: String]
 
-    public init(title: String? = nil, slides: [Slide]) {
+    public init(title: String? = nil, slides: [Slide], kickers: [Int: String] = [:]) {
         self.title = title
         self.slides = slides
+        self.kickers = kickers
     }
 }
