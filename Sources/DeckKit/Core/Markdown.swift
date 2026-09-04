@@ -86,6 +86,35 @@ public enum Markdown {
         return blocks
     }
 
+    /// A list item: `- point`, `1. point`, or either indented under another.
+    ///
+    /// Indentation is counted in **twos**, which is what a Markdown editor
+    /// inserts, and capped at four levels — deeper than that is an outline,
+    /// not a slide.
+    static func bullet(_ raw: String) -> Bullet? {
+        let indent = raw.prefix { $0 == " " || $0 == "\t" }
+            .reduce(0) { $0 + ($1 == "\t" ? 4 : 1) }
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        let level = min(4, indent / 2)
+
+        for marker in ["- ", "* ", "+ "] where line.hasPrefix(marker) {
+            return Bullet(String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces),
+                          level: level)
+        }
+        /// `1.` or `1)` — the number itself is thrown away, because
+        /// PowerPoint counts them and an author who renumbers by hand always
+        /// ends up with two number sevens.
+        let digits = line.prefix { $0.isNumber }
+        if !digits.isEmpty, digits.count <= 3 {
+            let rest = line.dropFirst(digits.count)
+            if rest.hasPrefix(". ") || rest.hasPrefix(") ") {
+                return Bullet(String(rest.dropFirst(2)).trimmingCharacters(in: .whitespaces),
+                              level: level, numbered: true)
+            }
+        }
+        return nil
+    }
+
     /// Whether a line begins a new slide.
     static func starts(_ line: String) -> Bool {
         line.hasPrefix("#") || line.hasPrefix(">") || line.hasPrefix("![")
@@ -101,10 +130,10 @@ public enum Markdown {
     static func slide(from block: [String], isFirst: Bool) -> Slide? {
         var heading: String?
         var level = 0
-        var points: [String] = []
+        var points: [Bullet] = []
         var figures: [(figure: String, label: String)] = []
         var panels: [(title: String, body: String)] = []
-        var rightPoints: [String] = []
+        var rightPoints: [Bullet] = []
         var inRightColumn = false
         var prose: [String] = []
         var quote: [String] = []
@@ -153,9 +182,8 @@ public enum Markdown {
                 /// grammar for it the `columns` layout could never fire, and
                 /// a comparison came out as one long list.
                 inRightColumn = true
-            } else if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ") {
-                let item = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-                if inRightColumn { rightPoints.append(item) } else { points.append(item) }
+            } else if let bullet = Self.bullet(raw) {
+                if inRightColumn { rightPoints.append(bullet) } else { points.append(bullet) }
             } else if line.hasPrefix("— ") || line.hasPrefix("-- ") {
                 /// An attribution line under a quote or statement.
                 attribution = line.drop(while: { $0 == "—" || $0 == "-" })

@@ -207,7 +207,7 @@ final class CheckTests: XCTestCase {
 
     func testAnOverlongSlideIsCaught() {
         let deck = Deck(slides: [.points("A heading", items: (1...20).map {
-            "Point \($0), written at enough length that it wraps onto a second line by itself"
+            Bullet("Point \($0), written at enough length that it wraps onto a second line by itself")
         }, note: nil)])
         let problems = Check.problems(in: deck, design: .fallback)
         XCTAssertFalse(problems.isEmpty)
@@ -434,5 +434,113 @@ final class ModernOutputTests: XCTestCase {
         let text = String(decoding: try PPTX.data(deck: Deck(slides: [.title("T", subtitle: nil)]),
                                                   design: try Designs.named("mono")), as: UTF8.self)
         XCTAssertFalse(text.contains("<a:gradFill"))
+    }
+}
+
+// MARK: - Inline marks, lists and notes
+
+final class InlineTests: XCTestCase {
+
+    func testTheFourMarks() {
+        XCTAssertEqual(Inline.spans("a **b** c").map(\.bold), [false, true, false])
+        XCTAssertEqual(Inline.spans("a *b* c").map(\.italic), [false, true, false])
+        XCTAssertEqual(Inline.spans("a `b` c").map(\.code), [false, true, false])
+        XCTAssertEqual(Inline.spans("[label](url)").first?.link, "url")
+    }
+
+    func testAnUnclosedMarkerStaysLiteral() {
+        // It used to fall through to the italic branch, which matched the
+        // SECOND asterisk of the pair — producing an empty italic span and
+        // silently eating the marks the author typed.
+        XCTAssertEqual(Inline.plain("**unclosed bold"), "**unclosed bold")
+        XCTAssertEqual(Inline.spans("**unclosed bold").count, 1)
+        XCTAssertEqual(Inline.plain("an * unpaired asterisk"), "an * unpaired asterisk")
+        XCTAssertEqual(Inline.plain("**"), "**")
+    }
+
+    func testAnEmptyPairMakesNoEmptySpan() {
+        XCTAssertFalse(Inline.spans("a ** b").contains { $0.text.isEmpty })
+    }
+
+    func testPlainStripsTheMarks() {
+        XCTAssertEqual(Inline.plain("a **b** and `c` and [d](e)"), "a b and c and d")
+    }
+}
+
+final class ListTests: XCTestCase {
+
+    func testIndentationBecomesALevel() {
+        let deck = Markdown.deck(from: "## H\n- top\n  - under\n    - deeper")
+        guard case let .points(_, items, _) = deck.slides[0] else { return XCTFail() }
+        XCTAssertEqual(items.map(\.level), [0, 1, 2])
+    }
+
+    func testNumbersAreThrownAwayAndCountedByPowerPoint() {
+        // An author who renumbers by hand always ends up with two sevens.
+        let deck = Markdown.deck(from: "## H\n1. first\n2. second\n3) third")
+        guard case let .points(_, items, _) = deck.slides[0] else { return XCTFail() }
+        XCTAssertEqual(items.map(\.text), ["first", "second", "third"])
+        XCTAssertTrue(items.allSatisfy(\.numbered))
+    }
+
+    func testAYearIsNotAList() {
+        // "2026. A good year" would otherwise become item one.
+        XCTAssertNil(Markdown.bullet("2026 was a good year"))
+        XCTAssertNotNil(Markdown.bullet("1. a real item"))
+    }
+
+    func testABulletCarriesItsMarksThroughToTheFile() throws {
+        let deck = Markdown.deck(from: "## H\n- a **bold** point")
+        let text = String(decoding: try PPTX.data(deck: deck, design: .fallback), as: UTF8.self)
+        XCTAssertTrue(text.contains("<a:t>bold</a:t>"))
+        XCTAssertFalse(text.contains("**bold**"), "the marks reached the slide")
+    }
+
+    func testALevelBecomesAHangingIndent() throws {
+        // marL and indent only — `lvl` selects a list style from the master,
+        // and with none defined it overrode these and left every sub-bullet's
+        // marker at the same x while only its text moved.
+        let deck = Markdown.deck(from: "## H\n- top\n  - under")
+        let text = String(decoding: try PPTX.data(deck: deck, design: .fallback), as: UTF8.self)
+        XCTAssertTrue(text.contains("marL=\"330200\" indent=\"-330200\""))
+        XCTAssertTrue(text.contains("marL=\"660400\" indent=\"-330200\""))
+        XCTAssertFalse(text.contains("lvl=\""))
+    }
+}
+
+final class NotesOutputTests: XCTestCase {
+
+    private let deck = Markdown.deck(from: "## A slide\n- one\n??? say this out loud")
+
+    func testANoteReachesTheFile() throws {
+        // The bug: `???` reached the model, `Slide.note` was populated, a test
+        // asserted it — and no notesSlide part was ever written, so every
+        // note the author typed was parsed and then dropped.
+        let text = String(decoding: try PPTX.data(deck: deck, design: .fallback), as: UTF8.self)
+        XCTAssertTrue(text.contains("ppt/notesSlides/notesSlide1.xml"))
+        XCTAssertTrue(text.contains("ppt/notesMasters/notesMaster1.xml"))
+        XCTAssertTrue(text.contains("say this out loud"))
+    }
+
+    func testTheSlidePointsAtItsNotes() throws {
+        // Without the rel from the slide, a reader finds no notes at all —
+        // which is how `has_notes_slide` stayed false while the part existed.
+        let text = String(decoding: try PPTX.data(deck: deck, design: .fallback), as: UTF8.self)
+        XCTAssertTrue(text.contains("relationships/notesSlide"))
+    }
+
+    func testADeckWithNoNotesCarriesNoNotesParts() throws {
+        let plain = Markdown.deck(from: "## A slide\n- one")
+        let text = String(decoding: try PPTX.data(deck: plain, design: .fallback), as: UTF8.self)
+        XCTAssertFalse(text.contains("notesSlide"))
+        XCTAssertFalse(text.contains("notesMaster"))
+    }
+
+    func testALinkBecomesAnExternalRelationship() throws {
+        let linked = Markdown.deck(from: "## H\n- see [the docs](https://example.com)")
+        let text = String(decoding: try PPTX.data(deck: linked, design: .fallback), as: UTF8.self)
+        XCTAssertTrue(text.contains("relationships/hyperlink"))
+        XCTAssertTrue(text.contains("TargetMode=\"External\""))
+        XCTAssertTrue(text.contains("hlinkClick"))
     }
 }

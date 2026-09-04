@@ -33,6 +33,8 @@ four.
 ! a statement, set large           ![caption](picture.png)
 = 91 | tools installed             a figure and what it counts
 :: Keyless | nothing to sign up    a card
+1. a numbered point                  - an indented sub-point
+**bold**  *italic*  `code`         [label](https://…)
 ??? presenter notes                --- an explicit break
 ```
 
@@ -57,6 +59,33 @@ of a file, so each slide is rendered by previewing a **one-slide copy of the
 deck**. A PDF drawn from the same layout model would only show what the model
 intended; this shows what a reader sees, including PowerPoint's own line
 breaking — the part a generator does not control.
+
+## Speaker notes actually reach the file
+
+`???` used to be parsed, exposed as `Slide.note`, asserted by a test — and
+never written. Every note the author typed was dropped. There is a
+`notesMaster` and a `notesSlide` part now, and the slide points at its notes
+as well as the other way round: without that relationship a reader finds
+nothing, which is how `has_notes_slide` stayed false while the part existed.
+
+A deck with no notes carries no notes parts.
+
+## Inline marks, lists and links
+
+`**bold**`, `*italic*`, `` `code` `` (set in a monospaced face) and
+`[label](url)` (a real external hyperlink) — one `<a:p>` holding several
+`<a:r>`, which is how OOXML models it too.
+
+An **unclosed** marker stays literal. It used to fall through to the italic
+branch, which matched the *second* asterisk of a `**` pair, produced an empty
+span and silently ate the marks.
+
+Lists carry levels and numbering: two spaces of indent is one level, and
+`1.` / `1)` become `buAutoNum` so **PowerPoint does the counting** — an author
+who renumbers by hand always ends up with two number sevens. Indentation is
+`marL` + a hanging `indent`, and deliberately **no `lvl`**: `lvl` selects a
+list style from the master, and with none defined it overrode both and left
+every sub-bullet's marker at the same x while only its text moved.
 
 ## The modern vocabulary
 
@@ -108,7 +137,7 @@ they differed, it reported a problem the layout did not have.
 
 ## Tested
 
-41 tests: the grammar keeping every word, a quote's attribution staying with
+54 tests: the grammar keeping every word, a quote's attribution staying with
 its quote, a picture keeping the heading above it, the heading landing in the
 same place on every slide shape, nothing placed outside the canvas, the same
 deck writing byte-identical output, and `&`/`<` escaped while typographic

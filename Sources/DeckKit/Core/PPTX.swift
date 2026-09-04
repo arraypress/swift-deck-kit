@@ -27,6 +27,15 @@ public enum PPTX {
         guard !deck.slides.isEmpty else { throw DeckError.empty }
         let layout = Layout(design: design, canvas: canvas)
 
+        /// Which slides carry a note, 1-based. Only those get a notes part;
+        /// a deck with none stays as small as it was.
+        let noted = deck.slides.enumerated().compactMap { index, slide -> (Int, String)? in
+            guard let note = slide.note?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !note.isEmpty else { return nil }
+            return (index + 1, note)
+        }
+
+
         var entries: [Zip.Entry] = []
         var media: [String: String] = [:]           // path → media file name
         var mediaEntries: [Zip.Entry] = []
@@ -39,7 +48,8 @@ public enum PPTX {
         }
 
         var slideParts: [(xml: String, rels: String)] = []
-        for slide in deck.slides {
+        let notedSlides = Set(noted.map(\.0))
+        for (offset, slide) in deck.slides.enumerated() {
             let boxes = layout.boxes(for: slide)
             var pictures: [(rel: String, name: String)] = []
             for box in boxes {
@@ -47,8 +57,19 @@ public enum PPTX {
                     pictures.append((rel: "rId\(pictures.count + 2)", name: name))
                 }
             }
-            slideParts.append((xml: slideXML(boxes, media: media, canvas: canvas),
-                               rels: slideRels(pictures)))
+            /// Links number on after the pictures, since both live in the
+            /// same relationship file.
+            var linkRels: [(rel: String, target: String)] = []
+            var linkIDs: [String: String] = [:]
+            for (offset, target) in linkTargets(boxes).enumerated() {
+                let rel = "rId\(pictures.count + 2 + offset)"
+                linkRels.append((rel: rel, target: target))
+                linkIDs[target] = rel
+            }
+            let number = offset + 1
+            slideParts.append((xml: slideXML(boxes, media: media, canvas: canvas, links: linkIDs),
+                               rels: slideRels(pictures, links: linkRels,
+                                               notesSlide: notedSlides.contains(number) ? number : nil)))
         }
 
         // MARK: Parts
@@ -75,6 +96,8 @@ public enum PPTX {
             <Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>\
             <Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>\
             <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>\
+            \(noted.isEmpty ? "" : "<Override PartName=\"/ppt/notesMasters/notesMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml\"/>")\
+            \(noted.map { "<Override PartName=\"/ppt/notesSlides/notesSlide\($0.0).xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml\"/>" }.joined())\
             \(overrides)</Types>
             """.utf8)))
 
@@ -100,6 +123,7 @@ public enum PPTX {
             xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" \
             xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">\
             <p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>\
+            \(noted.isEmpty ? "" : "<p:notesMasterIdLst><p:notesMasterId r:id=\"rId\(count + 3)\"/></p:notesMasterIdLst>")\
             <p:sldIdLst>\(slideIDs)</p:sldIdLst>\
             <p:sldSz cx="\(canvas.width)" cy="\(canvas.height)"/>\
             <p:notesSz cx="\(canvas.height)" cy="\(canvas.width)"/></p:presentation>
@@ -110,6 +134,9 @@ public enum PPTX {
             presentationRels.append("<Relationship Id=\"rId\(slide + 2)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"slides/slide\(slide + 1).xml\"/>")
         }
         presentationRels.append("<Relationship Id=\"rId\(count + 2)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme\" Target=\"theme/theme1.xml\"/>")
+        if !noted.isEmpty {
+            presentationRels.append("<Relationship Id=\"rId\(count + 3)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster\" Target=\"notesMasters/notesMaster1.xml\"/>")
+        }
         entries.append(.init(name: "ppt/_rels/presentation.xml.rels", data: Data("""
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\
             <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\
@@ -137,6 +164,22 @@ public enum PPTX {
             entries.append(.init(name: "ppt/slides/slide\(offset + 1).xml", data: Data(part.xml.utf8)))
             entries.append(.init(name: "ppt/slides/_rels/slide\(offset + 1).xml.rels", data: Data(part.rels.utf8)))
         }
+        if !noted.isEmpty {
+            entries.append(.init(name: "ppt/notesMasters/notesMaster1.xml", data: Data(Notes.master.utf8)))
+            entries.append(.init(name: "ppt/notesMasters/_rels/notesMaster1.xml.rels", data: Data("""
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\
+                <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/>\
+                </Relationships>
+                """.utf8)))
+            for (index, note) in noted {
+                entries.append(.init(name: "ppt/notesSlides/notesSlide\(index).xml",
+                                     data: Data(Notes.slide(note).utf8)))
+                entries.append(.init(name: "ppt/notesSlides/_rels/notesSlide\(index).xml.rels",
+                                     data: Data(Notes.rels(slide: index).utf8)))
+            }
+        }
+
         entries += mediaEntries
 
         return Zip.archive(entries)
@@ -144,7 +187,23 @@ public enum PPTX {
 
     // MARK: - Slides
 
-    static func slideXML(_ boxes: [Box], media: [String: String], canvas: Canvas) -> String {
+    /// Every distinct link target on a slide, in the order it appears.
+    static func linkTargets(_ boxes: [Box]) -> [String] {
+        var seen: [String] = []
+        for box in boxes {
+            guard case let .text(runs, _, _) = box.content else { continue }
+            for run in runs {
+                for span in run.spans {
+                    guard let link = span.link, !seen.contains(link) else { continue }
+                    seen.append(link)
+                }
+            }
+        }
+        return seen
+    }
+
+    static func slideXML(_ boxes: [Box], media: [String: String], canvas: Canvas,
+                         links: [String: String] = [:]) -> String {
         var shapes = ""
         var id = 1
         var pictureRel = 1
@@ -158,7 +217,8 @@ public enum PPTX {
             case let .gradient(stops, angle):
                 shapes += gradient(id: id, box: box, stops: stops, angle: angle)
             case let .text(runs, align, anchor):
-                shapes += textBox(id: id, box: box, runs: runs, align: align, anchor: anchor)
+                shapes += textBox(id: id, box: box, runs: runs, align: align,
+                                  anchor: anchor, links: links)
             case let .picture(path):
                 guard media[path] != nil else { continue }
                 pictureRel += 1
@@ -178,10 +238,23 @@ public enum PPTX {
             """
     }
 
-    static func slideRels(_ pictures: [(rel: String, name: String)]) -> String {
+    static func slideRels(_ pictures: [(rel: String, name: String)],
+                          links: [(rel: String, target: String)] = [],
+                          notesSlide: Int? = nil) -> String {
         var rels = ["<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>"]
         for picture in pictures {
             rels.append("<Relationship Id=\"\(picture.rel)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/\(picture.name)\"/>")
+        }
+        for link in links {
+            /// External, so PowerPoint opens it rather than looking for a
+            /// part inside the file.
+            rels.append("<Relationship Id=\"\(link.rel)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"\(escape(link.target))\" TargetMode=\"External\"/>")
+        }
+        if let notesSlide {
+            /// The slide points at its notes as well as the other way round.
+            /// Without this rel a reader finds no notes at all — which is how
+            /// `has_notes_slide` stayed false while the part existed.
+            rels.append("<Relationship Id=\"rId\(rels.count + 1)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide\" Target=\"../notesSlides/notesSlide\(notesSlide).xml\"/>")
         }
         return """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\
@@ -247,29 +320,52 @@ public enum PPTX {
             : "<a:srgbClr val=\"\(hex)\"><a:alpha val=\"\(Int(max(0, alpha) * 100_000))\"/></a:srgbClr>"
     }
 
-    private static func textBox(id: Int, box: Box, runs: [Run], align: Box.Align, anchor: Box.Anchor) -> String {
+    private static func textBox(id: Int, box: Box, runs: [Run],
+                                align: Box.Align, anchor: Box.Anchor,
+                                links: [String: String] = [:]) -> String {
         let alignment = ["left": "l", "centre": "ctr", "right": "r"][align.rawValue] ?? "l"
         let anchoring = ["top": "t", "middle": "ctr", "bottom": "b"][anchor.rawValue] ?? "t"
         var paragraphs = ""
         for run in runs {
-            /// **Order matters**: the schema requires lnSpc before spcBef.
-            /// Written the other way round it renders in Quick Look and is
-            /// rejected by `xmllint --schema pml.xsd`, which is how it was
-            /// caught — a lenient previewer hides it, PowerPoint might not.
+            /// **Order matters**: the schema requires lnSpc, then spcBef,
+            /// then the bullet elements. Written any other way it renders in
+            /// Quick Look and `xmllint --schema pml.xsd` rejects it — a
+            /// lenient previewer hides what PowerPoint might not forgive.
             let spacing = run.lineSpacing.map {
                 "<a:lnSpc><a:spcPct val=\"\(Int($0 * 100_000))\"/></a:lnSpc>"
             } ?? ""
             let before = run.spaceBefore > 0
                 ? "<a:spcBef><a:spcPts val=\"\(Int(run.spaceBefore * 100))\"/></a:spcBef>"
                 : ""
-            /// Letter-spacing is in hundredths of a point and may be negative.
-            let tracking = run.tracking != 0 ? " spc=\"\(Int(run.tracking * 100))\"" : ""
-            paragraphs += """
-                <a:p><a:pPr algn="\(alignment)">\(spacing)\(before)</a:pPr><a:r>\
-                <a:rPr lang="en-GB" sz="\(Int(run.size * 100))" b="\(run.bold ? 1 : 0)"\(tracking) dirty="0">\
-                <a:solidFill><a:srgbClr val="\(run.colour)"/></a:solidFill>\
-                </a:rPr><a:t>\(escape(run.text))</a:t></a:r></a:p>
-                """
+            let bullet: String
+            switch run.marker {
+            case .none:
+                bullet = "<a:buNone/>"
+            case let .character(mark):
+                bullet = "<a:buFont typeface=\"Arial\"/><a:buChar char=\"\(escape(mark))\"/>"
+            case .number:
+                /// Counted by PowerPoint, so inserting a line renumbers the
+                /// rest instead of leaving the author to fix it by hand.
+                bullet = "<a:buFont typeface=\"Arial\"/><a:buAutoNum type=\"arabicPeriod\"/>"
+            }
+            /// A hanging indent, so a wrapped line lines up with the text
+            /// above it rather than with the bullet.
+            ///
+            /// `marL` and `indent` only, **no `lvl`**: `lvl` selects a list
+            /// style from the master, and with none defined it overrode these
+            /// and left every sub-bullet's marker at the same x while only
+            /// its text moved.
+            let step = 26.0
+            let indent = run.marker == .none && run.level == 0
+                ? ""
+                : " marL=\"\(Canvas.points(step + Double(run.level) * step))\" indent=\"-\(Canvas.points(step))\""
+
+            paragraphs += "<a:p><a:pPr algn=\"\(alignment)\"\(indent)>"
+                + spacing + before + bullet + "</a:pPr>"
+            for span in run.spans where !span.text.isEmpty {
+                paragraphs += self.span(span, run: run, links: links)
+            }
+            paragraphs += "</a:p>"
         }
         return """
         <p:sp><p:nvSpPr><p:cNvPr id="\(id)" name="text\(id)"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>\
@@ -278,6 +374,23 @@ public enum PPTX {
         <p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" anchor="\(anchoring)">\
         <a:normAutofit/></a:bodyPr><a:lstStyle/>\(paragraphs)</p:txBody></p:sp>
         """
+    }
+
+    /// One run of text, with whatever marks it carries.
+    private static func span(_ span: Span, run: Run, links: [String: String]) -> String {
+        let tracking = run.tracking != 0 ? " spc=\"\(Int(run.tracking * 100))\"" : ""
+        let bold = (run.bold || span.bold) ? 1 : 0
+        let italic = span.italic ? " i=\"1\"" : ""
+        /// A monospaced face for `code`, because a file name set in the body
+        /// face is indistinguishable from prose — which is the whole reason
+        /// somebody wrote backticks round it.
+        let face = span.code ? "<a:latin typeface=\"Menlo\"/>" : ""
+        let link = span.link.flatMap { links[$0] }.map {
+            "<a:hlinkClick xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" r:id=\"\($0)\"/>"
+        } ?? ""
+        return "<a:r><a:rPr lang=\"en-GB\" sz=\"\(Int(run.size * 100))\" b=\"\(bold)\"\(italic)\(tracking) dirty=\"0\">"
+            + "<a:solidFill><a:srgbClr val=\"\(run.colour)\"/></a:solidFill>"
+            + face + link + "</a:rPr><a:t>\(escape(span.text))</a:t></a:r>"
     }
 
     private static func picture(id: Int, box: Box, relationship: String) -> String {

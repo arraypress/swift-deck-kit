@@ -19,7 +19,7 @@ public enum Slide: Sendable {
     case section(String, note: String?)
 
     /// A heading and some points.
-    case points(String, items: [String], note: String?)
+    case points(String, items: [Bullet], note: String?)
 
     /// A heading and a paragraph.
     case prose(String, body: String, note: String?)
@@ -34,7 +34,7 @@ public enum Slide: Sendable {
     case image(String, caption: String?, heading: String?)
 
     /// Two columns of points under one heading.
-    case columns(String, left: [String], right: [String], note: String?)
+    case columns(String, left: [Bullet], right: [Bullet], note: String?)
 
     /// Figures with labels, set large. The shape a number deserves.
     case stat(String?, figures: [(figure: String, label: String)])
@@ -75,11 +75,11 @@ public enum Slide: Sendable {
         switch self {
         case let .title(a, b): return [a] + [b].compactMap { $0 }
         case let .section(a, b): return [a] + [b].compactMap { $0 }
-        case let .points(a, items, _): return [a] + items
+        case let .points(a, items, _): return [a] + items.map(\.text)
         case let .prose(a, body, _): return [a, body]
         case let .statement(a, b), let .quote(a, b): return [a] + [b].compactMap { $0 }
         case let .image(_, caption, heading): return [caption, heading].compactMap { $0 }
-        case let .columns(a, left, right, _): return [a] + left + right
+        case let .columns(a, left, right, _): return [a] + (left + right).map(\.text)
         case let .stat(a, figures):
             return [a].compactMap { $0 } + figures.flatMap { [$0.figure, $0.label] }
         case let .cards(a, panels):

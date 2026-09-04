@@ -25,9 +25,18 @@ public struct Box: Sendable, Equatable {
     public let content: Content
 }
 
-/// One styled line.
+/// One styled paragraph.
 public struct Run: Sendable, Equatable {
-    public let text: String
+
+    /// The pieces of the line, each with its own marks.
+    ///
+    /// A paragraph used to be one string, so `**bold**` inside a bullet
+    /// reached the slide with its asterisks intact. OOXML models it the same
+    /// way — one `<a:p>` holding several `<a:r>`.
+    public let spans: [Span]
+
+    /// The whole line, unmarked. For measuring and for a manifest.
+    public var text: String { spans.map(\.text).joined() }
     public let size: Double
     public let bold: Bool
     public let colour: String
@@ -39,16 +48,41 @@ public struct Run: Sendable, Equatable {
     /// Line spacing as a multiple, or nil for the font's own.
     public let lineSpacing: Double?
 
+    /// The bullet or number this paragraph carries, and how deep it sits.
+    public let marker: Marker
+    public let level: Int
+
+    /// What sits in front of a paragraph.
+    public enum Marker: Sendable, Equatable {
+        case none
+        /// A literal character — a dash, a dot, whatever the design says.
+        case character(String)
+        /// 1. 2. 3., counted by PowerPoint so an inserted line renumbers.
+        case number
+    }
+
     public init(_ text: String, size: Double, bold: Bool = false,
                 colour: String, spaceBefore: Double = 0,
-                tracking: Double = 0, lineSpacing: Double? = nil) {
-        self.text = text
+                tracking: Double = 0, lineSpacing: Double? = nil,
+                marker: Marker = .none, level: Int = 0) {
+        self.init(Inline.spans(text), size: size, bold: bold, colour: colour,
+                  spaceBefore: spaceBefore, tracking: tracking,
+                  lineSpacing: lineSpacing, marker: marker, level: level)
+    }
+
+    public init(_ spans: [Span], size: Double, bold: Bool = false,
+                colour: String, spaceBefore: Double = 0,
+                tracking: Double = 0, lineSpacing: Double? = nil,
+                marker: Marker = .none, level: Int = 0) {
+        self.spans = spans
         self.size = size
         self.bold = bold
         self.colour = colour
         self.spaceBefore = spaceBefore
         self.tracking = tracking
         self.lineSpacing = lineSpacing
+        self.marker = marker
+        self.level = level
     }
 }
 
@@ -87,10 +121,16 @@ public struct Layout: Sendable {
         case let .points(heading, items, _):
             let head = ordinary + self.heading(heading)
             let leading = design.bodySize * design.leading
+            /// A real bullet, not a character glued to the front of the
+            /// string: PowerPoint then indents the wrap, renumbers a list
+            /// when a line is inserted, and a reader editing the deck gets a
+            /// list rather than a paragraph that looks like one.
             let runs = items.enumerated().map { index, item in
-                Run(design.bullet.isEmpty ? item : "\(design.bullet)  \(item)",
-                    size: design.bodySize, colour: design.body,
-                    spaceBefore: index == 0 ? 0 : leading)
+                Run(Inline.spans(item.text), size: design.bodySize, colour: design.body,
+                    spaceBefore: index == 0 ? 0 : leading,
+                    marker: item.numbered ? .number
+                        : (design.bullet.isEmpty ? .none : .character(design.bullet)),
+                    level: item.level)
             }
             return head + [body(runs)]
 
@@ -223,11 +263,13 @@ public struct Layout: Sendable {
             let column = (contentWidth - gutter) / 2
             let top = bodyTop
             let depth = canvas.height - top - canvas.down(0.12)
-            func runs(_ items: [String]) -> [Run] {
+            func runs(_ items: [Bullet]) -> [Run] {
                 items.enumerated().map { index, item in
-                    Run(design.bullet.isEmpty ? item : "\(design.bullet)  \(item)",
-                        size: design.bodySize, colour: design.body,
-                        spaceBefore: index == 0 ? 0 : leading)
+                    Run(Inline.spans(item.text), size: design.bodySize, colour: design.body,
+                        spaceBefore: index == 0 ? 0 : leading,
+                        marker: item.numbered ? .number
+                            : (design.bullet.isEmpty ? .none : .character(design.bullet)),
+                        level: item.level)
                 }
             }
             /// Both columns anchored the same way, so a five-item column and
