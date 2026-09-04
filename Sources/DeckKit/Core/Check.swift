@@ -30,6 +30,16 @@ public enum Check {
         public let text: String
         /// How much over: 1.2 means a fifth taller than its box.
         public let overflow: Double
+
+        /// Public so a caller can build one for a test of its own rendering,
+        /// without generating a deck that overflows to get hold of it.
+        public init(slide: Int, kind: String, message: String, text: String, overflow: Double) {
+            self.slide = slide
+            self.kind = kind
+            self.message = message
+            self.text = text
+            self.overflow = overflow
+        }
     }
 
     /// Every problem in a deck.
