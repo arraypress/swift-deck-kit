@@ -1,0 +1,22 @@
+{
+  "name": "warm",
+  "description": "Cream paper, ink-brown text, a terracotta rule.",
+  "background": "FBF7F0",
+  "featureBackground": "2B211C",
+  "heading": "2B211C",
+  "body": "5A4C44",
+  "featureBody": "C4B4A8",
+  "featureHeading": "FBF7F0",
+  "accent": "C25E3A",
+  "headingFont": "Georgia",
+  "bodyFont": "Helvetica Neue",
+  "base": 22,
+  "ratio": 1.28,
+  "leading": 0.68,
+  "headingBold": false,
+  "margin": 0.08,
+  "headingTop": 0.12,
+  "gap": 1.5,
+  "rule": true,
+  "bullet": "•"
+}

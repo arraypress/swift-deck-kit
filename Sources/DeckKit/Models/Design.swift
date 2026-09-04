@@ -84,6 +84,15 @@ public struct Design: Codable, Sendable, Equatable {
     public var bodySize: Double { size(0) }
     public var captionSize: Double { size(-1) }
 
+    /// The height one line occupies, in points.
+    ///
+    /// Defined once because the layout and the overflow check must agree: if
+    /// they differ, the checker reports problems the layout does not have, or
+    /// misses the ones it does.
+    public func lineHeight(_ size: Double) -> Double {
+        size * (1 + leading * 0.6)
+    }
+
     public static let fallback = Design(
         name: "plain", description: "Black on white, one accent.",
         background: "FFFFFF", featureBackground: "111111",

@@ -68,7 +68,18 @@ public enum Markdown {
             /// thing a converter must never do.
             let continuingQuote = trimmed.hasPrefix(">")
                 && current.contains { $0.trimmingCharacters(in: .whitespaces).hasPrefix(">") }
-            if starts(trimmed), !current.isEmpty, !isAttribution(trimmed), !continuingQuote { flush() }
+            /// A picture written straight under a heading belongs to that
+            /// heading's slide — splitting there threw the heading away, and
+            /// a captioned diagram with no title is not what the author
+            /// typed. Anything else in the block, and the picture gets a
+            /// slide of its own.
+            let underOnlyAHeading = trimmed.hasPrefix("![")
+                && current.allSatisfy { line in
+                    let text = line.trimmingCharacters(in: .whitespaces)
+                    return text.isEmpty || text.hasPrefix("#")
+                }
+            if starts(trimmed), !current.isEmpty, !isAttribution(trimmed),
+               !continuingQuote, !underOnlyAHeading { flush() }
             current.append(line)
         }
         flush()

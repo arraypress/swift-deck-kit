@@ -1,0 +1,22 @@
+{
+  "name": "slate",
+  "description": "Dark throughout, for a room with the lights down.",
+  "background": "14161A",
+  "featureBackground": "0A0B0D",
+  "heading": "F2F4F7",
+  "body": "A9B2BD",
+  "featureBody": "8A94A0",
+  "featureHeading": "FFFFFF",
+  "accent": "4ADE80",
+  "headingFont": "Helvetica Neue",
+  "bodyFont": "Helvetica Neue",
+  "base": 22,
+  "ratio": 1.3,
+  "leading": 0.68,
+  "headingBold": true,
+  "margin": 0.075,
+  "headingTop": 0.11,
+  "gap": 1.5,
+  "rule": true,
+  "bullet": "—"
+}
