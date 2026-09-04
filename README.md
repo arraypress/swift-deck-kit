@@ -146,8 +146,9 @@ the first decks looked a decade old: flat fills, square corners, no depth, no
 transparency, no tracking.
 
 - **Gradient grounds** (`gradFill`), on feature slides and body slides alike
-- **Rounded, translucent cards** (`roundRect` + `alpha`) with **soft shadows**
-  (`outerShdw`) and hairline borders
+- **Cards** with hairline borders and **soft shadows** (`outerShdw`) — square
+  and opaque by measurement (below); a design's translucency is composited
+  over the ground at write time
 - **Negative letter-spacing** (`spc`) on display type — the single change that
   most separates a modern heading from a dated one
 - **Tightened line spacing** (`lnSpc`) for large headings
@@ -192,7 +193,7 @@ the 17 had been tuned on Quick Look, which pads a bullet by itself.
 ## What a second renderer found
 
 Quick Look is lenient. Rendering the same deck through LibreOffice, and
-setting a probe deck in Impact, found six faults it had hidden:
+setting a probe deck in Impact, found seven faults it had hidden:
 
 - **The design's font never reached the text** — above.
 - **Pictures were stretched to their box**: a 1:3 portrait arrived as a 3:1
@@ -210,6 +211,16 @@ setting a probe deck in Impact, found six faults it had hidden:
 - **The kicker was configured and never drawn.** `^ Results` above a heading
   sets it: uppercase, tracked, in the design's kicker colour, on a pill in
   the modern designs.
+- **Translucent and rounded shapes leaked onto other slides in Quick Look** —
+  the biggest, and the last found. Quick Look's generator renders any shape
+  with an alpha channel *or* rounded corners to a PDF attachment, then places
+  attachments on the wrong slides of a longer deck: a ten-slide deck's 9
+  cards were drawn 17 times, on slides that had no cards. Two-slide probes
+  never leak, which is why every earlier check passed, and shape ids made
+  unique across the deck changed nothing. Square and opaque, the same card is
+  a `div` and stays put. So: translucent fills are composited over the ground
+  at write time (`Colour`), the modern designs are square, and a test runs the
+  real generator on a ten-slide deck and asserts zero attachments.
 
 ## `Check` is an estimate, and says so
 
@@ -221,7 +232,7 @@ they differed, it reported a problem the layout did not have.
 
 ## Tested
 
-107 tests: the grammar keeping every word, a quote's attribution staying with
+112 tests: the grammar keeping every word, a quote's attribution staying with
 its quote, a picture keeping the heading above it, the heading landing in the
 same place on every slide shape, nothing placed outside the canvas, the same
 deck writing byte-identical output, and `&`/`<` escaped while typographic

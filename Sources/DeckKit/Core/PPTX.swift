@@ -74,7 +74,7 @@ public enum PPTX {
             }
             let number = offset + 1
             slideParts.append((xml: slideXML(boxes, media: media, sizes: sizes, canvas: canvas,
-                                             design: design, links: linkIDs),
+                                             design: design, links: linkIDs, slide: number),
                                rels: slideRels(pictures, links: linkRels,
                                                notesSlide: notedSlides.contains(number) ? number : nil,
                                                layout: Layouts.number(for: slide))))
@@ -231,19 +231,30 @@ public enum PPTX {
         return seen
     }
 
+    /// Shape ids are unique across the WHOLE deck, not just the slide.
+    ///
+    /// The specification only asks for uniqueness within a slide, and ids
+    /// restarted at 2 on every one. Quick Look's generator renders each
+    /// effect shape — a translucent card, a pill — to an attachment and
+    /// then places attachments by shape id at document scope, so every
+    /// slide whose shapes merely shared an id with a card elsewhere got that
+    /// card drawn on it: a 10-slide deck placed its 9 attachments 17 times.
+    /// The ghost boxes a real viewer showed were never placeholders.
     static func slideXML(_ boxes: [Box], media: [String: String],
                          sizes: [String: (width: Int, height: Int)] = [:], canvas: Canvas,
-                         design: Design, links: [String: String] = [:]) -> String {
+                         design: Design, links: [String: String] = [:],
+                         slide: Int = 1) -> String {
         var shapes = ""
-        var id = 1
+        var id = slide * 100 + 1
         var pictureRel = 1
+        let ground = groundColour(of: boxes, canvas: canvas, design: design)
         for box in boxes {
             id += 1
             switch box.content {
             case let .fill(colour):
-                shapes += shape(id: id, box: box, panel: .flat(colour), canvas: canvas)
+                shapes += shape(id: id, box: box, panel: .flat(colour), ground: ground)
             case let .panel(panel):
-                shapes += shape(id: id, box: box, panel: panel, canvas: canvas)
+                shapes += shape(id: id, box: box, panel: panel, ground: ground)
             case let .gradient(stops, angle):
                 shapes += gradient(id: id, box: box, stops: stops, angle: angle)
             case let .text(runs, align, anchor):
@@ -300,20 +311,45 @@ public enum PPTX {
             """
     }
 
-    /// A filled shape: flat or rounded, opaque or translucent, with or
-    /// without a soft shadow.
+    /// The colour the slide's ground composites to: a gradient's middle, a
+    /// full-bleed fill's colour, or the design's background.
+    static func groundColour(of boxes: [Box], canvas: Canvas, design: Design) -> String {
+        for box in boxes {
+            switch box.content {
+            case let .gradient(stops, _):
+                if let middle = Colour.average(stops.map(\.colour)) { return middle }
+            case let .fill(colour) where box.width >= canvas.width && box.height >= canvas.height:
+                return colour
+            default:
+                continue
+            }
+        }
+        return design.background
+    }
+
+    /// A filled shape, with or without a soft shadow.
+    ///
+    /// **Written opaque.** A translucent fill is composited over the ground
+    /// here — see `Colour` — because Quick Look renders any shape with alpha,
+    /// or with rounded corners, to an attachment and places attachments on
+    /// the wrong slides of a longer deck. Square and opaque it is a `div`.
+    /// The radius is still honoured when a design insists, and measured to
+    /// leak the same way.
     ///
     /// `roundRect`'s adjust is a percentage of **half the shorter side**, so
     /// a radius given as a fraction of the shorter side doubles on the way in.
-    private static func shape(id: Int, box: Box, panel: Panel, canvas: Canvas) -> String {
+    private static func shape(id: Int, box: Box, panel: Panel, ground: String) -> String {
         let rounded = panel.radius > 0
         let adjust = min(50_000, Int(panel.radius * 2 * 100_000))
         let geometry = rounded
             ? "<a:prstGeom prst=\"roundRect\"><a:avLst><a:gd name=\"adj\" fmla=\"val \(adjust)\"/></a:avLst></a:prstGeom>"
             : "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>"
-        let fill = "<a:solidFill>\(colour(panel.fill, alpha: panel.fillAlpha))</a:solidFill>"
+        let face = Colour.blend(panel.fill, alpha: panel.fillAlpha, over: ground)
+        let fill = "<a:solidFill><a:srgbClr val=\"\(face)\"/></a:solidFill>"
+        /// The border straddles the card's edge, so it composites over the
+        /// card rather than the ground.
         let line = panel.border.map {
-            "<a:ln w=\(Canvas.points(panel.borderWidth).quoted)><a:solidFill>\(colour($0, alpha: panel.borderAlpha))</a:solidFill></a:ln>"
+            "<a:ln w=\(Canvas.points(panel.borderWidth).quoted)><a:solidFill><a:srgbClr val=\"\(Colour.blend($0, alpha: panel.borderAlpha, over: face))\"/></a:solidFill></a:ln>"
         } ?? "<a:ln><a:noFill/></a:ln>"
         /// Blur and offset in EMU. Generous blur and a short drop is what
         /// reads as a soft modern shadow rather than a 2007 bevel.
@@ -348,13 +384,6 @@ public enum PPTX {
         <a:ln><a:noFill/></a:ln></p:spPr>\
         <p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody></p:sp>
         """
-    }
-
-    /// A colour, with an alpha child only when it is not opaque.
-    private static func colour(_ hex: String, alpha: Double) -> String {
-        alpha >= 1
-            ? "<a:srgbClr val=\"\(hex)\"/>"
-            : "<a:srgbClr val=\"\(hex)\"><a:alpha val=\"\(Int(max(0, alpha) * 100_000))\"/></a:srgbClr>"
     }
 
     private static func textBox(id: Int, box: Box, runs: [Run],
@@ -490,7 +519,7 @@ public enum PPTX {
         <a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>\
         <p:txBody><a:bodyPr wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" anchor="ctr"/><a:lstStyle/>\
         <a:p><a:pPr algn="r"><a:buNone/></a:pPr>\
-        <a:fld id="{B4B7A2E9-0F1C-4A64-9E19-1F1E8E1C4E01}" type="slidenum">\
+        <a:fld id="{B4B7A2E9-0F1C-4A64-9E19-\(String(format: "%012X", id))}" type="slidenum">\
         <a:rPr lang="en-GB" sz="\(Int(size * 100))" dirty="0">\
         <a:solidFill><a:srgbClr val="\(colour)"/></a:solidFill>\
         <a:latin typeface="\(escape(face))"/></a:rPr>\

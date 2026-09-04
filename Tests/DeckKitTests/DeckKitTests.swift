@@ -401,13 +401,20 @@ final class ModernOutputTests: XCTestCase {
         XCTAssertTrue(text.contains("<a:gs pos="))
     }
 
-    func testACardIsRoundedTranslucentAndShadowed() throws {
+    func testACardIsOpaqueSquareAndShadowed() throws {
+        // Translucent or rounded, Quick Look renders a card to an attachment
+        // and places attachments on the wrong slides of a longer deck. The
+        // fill is composited over the ground here instead.
         let design = try Designs.named("aurora")
         let deck = Deck(slides: [.stat("N", figures: [(figure: "91", label: "tools")], note: nil)])
         let text = String(decoding: try PPTX.data(deck: deck, design: design), as: UTF8.self)
-        XCTAssertTrue(text.contains("prst=\"roundRect\""))
-        XCTAssertTrue(text.contains("<a:alpha val="))
+        XCTAssertFalse(text.contains("prst=\"roundRect\""))
         XCTAssertTrue(text.contains("<a:outerShdw"))
+        let ground = Colour.average(design.bodyGradient!.map(\.colour))!
+        let face = Colour.blend(design.card!.fill, alpha: design.card!.fillAlpha, over: ground)
+        XCTAssertTrue(text.contains("<a:solidFill><a:srgbClr val=\"\(face)\"/></a:solidFill>"), "the composited fill")
+        let outsideEffects = text.replacingOccurrences(of: "<a:effectLst>.*?</a:effectLst>", with: "", options: .regularExpression)
+        XCTAssertFalse(outsideEffects.contains("<a:alpha val="), "no translucency reaches a shape")
     }
 
     func testNegativeTrackingIsWritten() throws {

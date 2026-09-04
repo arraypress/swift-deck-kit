@@ -310,3 +310,122 @@ final class IndentTests: XCTestCase {
         XCTAssertEqual(columns[0].y, columns[1].y)
     }
 }
+
+final class ShapeIdentityTests: XCTestCase {
+
+    func testShapeIdsAreUniqueAcrossTheWholeDeck() throws {
+        // Quick Look places effect shapes by id at document scope: with ids
+        // restarting on every slide, a card from slide 3 was drawn on every
+        // later slide that had a shape numbered the same.
+        let design = try Designs.named("aurora")
+        let deck = Markdown.deck(from: """
+            # T
+            ## Cards
+            :: A | a
+            :: B | b
+            ^ K
+            ## Points
+            - one
+            | x | y |
+            |---|---|
+            | 1 | 2 |
+            """)
+        let layout = Layout(design: design)
+        var seen: Set<Int> = []
+        for (index, slide) in deck.slides.enumerated() {
+            let xml = PPTX.slideXML(layout.boxes(for: slide, kicker: deck.kickers[index]),
+                                    media: [:], canvas: .sixteenByNine, design: design, slide: index + 1)
+            for match in xml.components(separatedBy: "<p:cNvPr id=\"").dropFirst() {
+                let id = Int(match.prefix { $0.isNumber })!
+                guard id != 1 else { continue }   // the group shape every slide has
+                XCTAssertTrue(seen.insert(id).inserted, "shape id \(id) is reused on slide \(index + 1)")
+            }
+        }
+        XCTAssertGreaterThan(seen.count, 10)
+    }
+}
+
+final class CompositingTests: XCTestCase {
+
+    func testATranslucentFillCompositesOverTheGround() {
+        XCTAssertEqual(Colour.blend("FFFFFF", alpha: 0.07, over: "0E1527"), "1F2536")
+        XCTAssertEqual(Colour.blend("FFFFFF", alpha: 1, over: "000000"), "FFFFFF", "opaque is untouched")
+        XCTAssertEqual(Colour.blend("FFFFFF", alpha: 0, over: "0E1527"), "0E1527")
+        XCTAssertEqual(Colour.blend("nope", alpha: 0.5, over: "000000"), "nope", "unparseable stays as written")
+    }
+
+    func testAGradientGroundBlendsAgainstItsMiddle() throws {
+        XCTAssertEqual(Colour.average(["0B1120", "121A2E"]), "0E1527")
+        let design = try Designs.named("aurora")
+        let boxes = Layout(design: design).boxes(for: .points("H", items: ["a"], note: nil))
+        XCTAssertEqual(PPTX.groundColour(of: boxes, canvas: .sixteenByNine, design: design), "0E1527")
+        let rule = Design.fallback
+        let plain = Layout(design: rule).boxes(for: .points("H", items: ["a"], note: nil))
+        XCTAssertEqual(PPTX.groundColour(of: plain, canvas: .sixteenByNine, design: rule), rule.background,
+                       "the accent rule is a fill, but not the ground")
+    }
+}
+
+final class QuickLookTests: XCTestCase {
+
+    /// Runs the real generator. Every earlier probe used two slides, and a
+    /// two-slide deck never leaks — this one is ten.
+    func testQuickLookPlacesNoAttachmentsForTheBundledDesigns() throws {
+        let ql = URL(fileURLWithPath: "/usr/bin/qlmanage")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: ql.path), "no Quick Look on this machine")
+        let deck = Markdown.deck(from: """
+            # T
+            sub
+            ^ K
+            ## S
+            = 1 | a
+            = 2 | b
+            = 3 | c
+            ## C
+            :: A | a
+            :: B | b
+            :: C | c
+            # D
+            sub
+            ^ K2
+            ## P
+            - one
+            - two
+            ## T
+            | a | b |
+            |---|---|
+            | 1 | 2 |
+            ! Statement
+            ## Q
+            - x
+            |
+            - y
+            ^ K3
+            # E
+            sub
+            ## L
+            1. one
+            """)
+        XCTAssertGreaterThanOrEqual(deck.slides.count, 10)
+        for name in ["aurora", "daylight"] {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("deck-ql-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let file = dir.appendingPathComponent("\(name).pptx")
+            try PPTX.data(deck: deck, design: try Designs.named(name)).write(to: file)
+            let process = Process()
+            process.executableURL = ql
+            process.arguments = ["-p", "-o", dir.path, file.path]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+            let html = dir.appendingPathComponent("\(name).pptx.qlpreview/Preview.html")
+            guard let preview = try? String(contentsOf: html, encoding: .utf8) else {
+                throw XCTSkip("Quick Look wrote no preview for \(name)")
+            }
+            let placed = preview.components(separatedBy: "src=\"Attachment").count - 1
+            XCTAssertEqual(placed, 0, "\(name): Quick Look rendered \(placed) attachments, which leak onto other slides")
+        }
+    }
+}

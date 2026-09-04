@@ -41,7 +41,7 @@
       "position": 1.0
     }
   ],
-  "cornerRadius": 0.06,
+  "cornerRadius": 0,
   "headingTracking": -0.9,
   "kickerTracking": 2.2,
   "lineSpacing": 0.92,
@@ -52,7 +52,7 @@
     "border": "0F172A",
     "borderAlpha": 0.09,
     "borderWidth": 1,
-    "radius": 0.06,
+    "radius": 0,
     "shadow": true
   },
   "kickerPill": {
@@ -61,7 +61,7 @@
     "border": null,
     "borderAlpha": 0,
     "borderWidth": 0,
-    "radius": 0.5,
+    "radius": 0,
     "shadow": false
   }
 }
