@@ -23,7 +23,8 @@ public enum PPTX {
         canvas: Canvas = .sixteenByNine,
         images: [String: Data] = [:],
         embed: [(face: Embedding.Face, data: Data)] = [],
-        embedTypeface: String = Embedding.bundledTypeface
+        embedTypeface: String = Embedding.bundledTypeface,
+        firstSlideNumber: Int = 1
     ) throws -> Data {
 
         guard !deck.slides.isEmpty else { throw DeckError.empty }
@@ -53,7 +54,7 @@ public enum PPTX {
         let notedSlides = Set(noted.map(\.0))
         for (offset, slide) in deck.slides.enumerated() {
             let boxes = layout.boxes(for: slide)
-                + [layout.slideNumber(for: slide, number: offset + 1)].compactMap { $0 }
+                + [layout.slideNumber(for: slide, number: firstSlideNumber + offset)].compactMap { $0 }
             var pictures: [(rel: String, name: String)] = []
             for box in boxes {
                 if case let .picture(path) = box.content, let name = media[path] {

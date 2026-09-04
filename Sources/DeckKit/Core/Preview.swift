@@ -44,7 +44,12 @@ public enum Preview {
         for (index, slide) in deck.slides.enumerated() {
             let single = Deck(title: deck.title, slides: [slide])
             let file = work.appendingPathComponent(String(format: "%03d.pptx", index + 1))
-            try PPTX.data(deck: single, design: design, canvas: canvas, images: images)
+            /// The real slide number, not 1. Each preview is a one-slide
+            /// copy, so without this every rendered page showed "1" while
+            /// the deck itself was numbered correctly — a preview that
+            /// disagrees with the file is worse than none.
+            try PPTX.data(deck: single, design: design, canvas: canvas,
+                          images: images, firstSlideNumber: index + 1)
                 .write(to: file, options: .atomic)
 
             try quickLook(file, width: width, into: work)

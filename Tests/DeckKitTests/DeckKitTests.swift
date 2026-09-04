@@ -846,3 +846,18 @@ final class LayoutGeometryTests: XCTestCase {
         XCTAssertTrue(text.contains("<a:t>3</a:t>"))
     }
 }
+
+final class PreviewNumberingTests: XCTestCase {
+
+    func testAOneSlideCopyKeepsTheRealNumber() throws {
+        // Each preview is a one-slide copy, so without this every rendered
+        // page showed "1" while the deck itself was numbered correctly — a
+        // preview that disagrees with the file is worse than none.
+        var design = Design.fallback
+        design.slideNumbers = true
+        let single = Deck(slides: [.points("H", items: ["a"], note: nil)])
+        let text = String(decoding: try PPTX.data(deck: single, design: design,
+                                                  firstSlideNumber: 7), as: UTF8.self)
+        XCTAssertTrue(text.contains("<a:t>7</a:t>"))
+    }
+}
