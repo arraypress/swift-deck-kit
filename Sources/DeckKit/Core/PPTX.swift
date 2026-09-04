@@ -24,11 +24,20 @@ public enum PPTX {
         images: [String: Data] = [:],
         embed: [(face: Embedding.Face, data: Data)] = [],
         embedTypeface: String = Embedding.bundledTypeface,
-        firstSlideNumber: Int = 1
+        firstSlideNumber: Int = 1,
+        contexts: [Layout.Context]? = nil
     ) throws -> Data {
 
         guard !deck.slides.isEmpty else { throw DeckError.empty }
         let layout = Layout(design: design, canvas: canvas)
+        let sizes = images.compactMapValues(ImageSize.of)
+        /// Supplied by a caller rendering one slide of a larger deck, so
+        /// the copy still knows the deck's sections and furniture.
+        let contexts = contexts ?? deck.slides.indices.map { deck.context(for: $0, imageSizes: sizes) }
+        let allBoxes = deck.slides.enumerated().map { offset, slide in
+            layout.boxes(for: slide, context: contexts[offset])
+                + [layout.slideNumber(for: slide, number: firstSlideNumber + offset)].compactMap { $0 }
+        }
 
         /// Which slides carry a note, 1-based. Only those get a notes part;
         /// a deck with none stays as small as it was.
@@ -40,26 +49,36 @@ public enum PPTX {
 
 
         var entries: [Zip.Entry] = []
-        var media: [String: String] = [:]           // path → media file name
-        var sizes: [String: (width: Int, height: Int)] = [:]
+        var media: [String: String] = [:]           // media key → media file name
         var mediaEntries: [Zip.Entry] = []
         var index = 0
         for (path, data) in images.sorted(by: { $0.key < $1.key }) {
             index += 1
             let name = "image\(index).\(((path as NSString).pathExtension).lowercased())"
             media[path] = name
-            sizes[path] = ImageSize.of(data)
             mediaEntries.append(Zip.Entry(name: "ppt/media/\(name)", data: data))
+        }
+        /// A cover's photograph is carried a second time, darkened in its
+        /// pixels — a translucent shape over it would leak in Quick Look.
+        for box in allBoxes.joined() {
+            guard case let .picture(path, fit) = box.content, case let .cover(dim) = fit,
+                  let data = images[path], media[mediaKey(box)] == nil,
+                  let dimmed = Darken.apply(data, amount: dim) else { continue }
+            index += 1
+            let name = "image\(index)-dim.jpg"
+            media[mediaKey(box)] = name
+            mediaEntries.append(Zip.Entry(name: "ppt/media/\(name)", data: dimmed))
         }
 
         var slideParts: [(xml: String, rels: String)] = []
+        var chartParts: [Zip.Entry] = []
+        var chartCount = 0
         let notedSlides = Set(noted.map(\.0))
         for (offset, slide) in deck.slides.enumerated() {
-            let boxes = layout.boxes(for: slide, kicker: deck.kickers[offset])
-                + [layout.slideNumber(for: slide, number: firstSlideNumber + offset)].compactMap { $0 }
+            let boxes = allBoxes[offset]
             var pictures: [(rel: String, name: String)] = []
             for box in boxes {
-                if case let .picture(path) = box.content, let name = media[path] {
+                if case .picture = box.content, let name = media[mediaKey(box)] {
                     pictures.append((rel: "rId\(pictures.count + 2)", name: name))
                 }
             }
@@ -72,10 +91,29 @@ public enum PPTX {
                 linkRels.append((rel: rel, target: target))
                 linkIDs[target] = rel
             }
+            /// Charts after the links: each is a part of its own, with a
+            /// workbook of its own, numbered across the deck.
+            var chartRels: [(rel: String, number: Int)] = []
+            let ground = groundColour(of: boxes, canvas: canvas, design: design)
+            for box in boxes {
+                guard case let .chart(kind, rows, header) = box.content else { continue }
+                chartCount += 1
+                let rel = "rId\(pictures.count + linkRels.count + 2 + chartRels.count)"
+                chartRels.append((rel: rel, number: chartCount))
+                let data = Charts.Data(rows: rows, header: header)
+                chartParts.append(.init(name: "ppt/charts/chart\(chartCount).xml",
+                                        data: Data(Charts.part(kind: kind, data: data, design: design, ground: ground).utf8)))
+                chartParts.append(.init(name: "ppt/charts/_rels/chart\(chartCount).xml.rels",
+                                        data: Data(Charts.rels.replacingOccurrences(of: "%N", with: String(chartCount)).utf8)))
+                chartParts.append(.init(name: "ppt/embeddings/Microsoft_Excel_Sheet\(chartCount).xlsx",
+                                        data: Charts.workbook(data)))
+            }
             let number = offset + 1
             slideParts.append((xml: slideXML(boxes, media: media, sizes: sizes, canvas: canvas,
-                                             design: design, links: linkIDs, slide: number),
-                               rels: slideRels(pictures, links: linkRels,
+                                             design: design, links: linkIDs, slide: number,
+                                             transition: deck.transition, builds: deck.builds,
+                                             charts: chartRels.map(\.rel)),
+                               rels: slideRels(pictures, links: linkRels, charts: chartRels,
                                                notesSlide: notedSlides.contains(number) ? number : nil,
                                                layout: Layouts.number(for: slide))))
         }
@@ -93,7 +131,10 @@ public enum PPTX {
         if !embed.isEmpty {
             defaults += "<Default Extension=\"fntdata\" ContentType=\"application/x-fontdata\"/>"
         }
-        for suffix in Set(media.values.map { ($0 as NSString).pathExtension }) {
+        if chartCount > 0 {
+            defaults += "<Default Extension=\"xlsx\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\"/>"
+        }
+        for suffix in Set(media.values.map { ($0 as NSString).pathExtension }) where !suffix.isEmpty {
             let type = suffix == "png" ? "image/png" : (suffix == "gif" ? "image/gif" : "image/jpeg")
             defaults += "<Default Extension=\"\(suffix)\" ContentType=\"\(type)\"/>"
         }
@@ -109,6 +150,7 @@ public enum PPTX {
             <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>\
             \(noted.isEmpty ? "" : "<Override PartName=\"/ppt/notesMasters/notesMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml\"/>")\
             \(noted.map { "<Override PartName=\"/ppt/notesSlides/notesSlide\($0.0).xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml\"/>" }.joined())\
+            \((0..<chartCount).map { "<Override PartName=\"/ppt/charts/chart\($0 + 1).xml\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>" }.joined())\
             \(overrides)</Types>
             """.utf8)))
 
@@ -210,11 +252,20 @@ public enum PPTX {
         }
 
         entries += mediaEntries
+        entries += chartParts
 
         return Zip.archive(entries)
     }
 
     // MARK: - Slides
+
+    /// Which media file a picture box draws: the picture itself, or its
+    /// darkened copy for a cover.
+    static func mediaKey(_ box: Box) -> String {
+        guard case let .picture(path, fit) = box.content else { return "" }
+        if case let .cover(dim) = fit { return "\(path)#dim\(dim)" }
+        return path
+    }
 
     /// Every distinct link target on a slide, in the order it appears.
     static func linkTargets(_ boxes: [Box]) -> [String] {
@@ -243,10 +294,15 @@ public enum PPTX {
     static func slideXML(_ boxes: [Box], media: [String: String],
                          sizes: [String: (width: Int, height: Int)] = [:], canvas: Canvas,
                          design: Design, links: [String: String] = [:],
-                         slide: Int = 1) -> String {
+                         slide: Int = 1, transition: Transition = .none,
+                         builds: Bool = false, charts: [String] = []) -> String {
         var shapes = ""
         var id = slide * 100 + 1
         var pictureRel = 1
+        var chartIndex = 0
+        /// The lists on the slide, for a build: a text box whose every
+        /// paragraph carries a marker.
+        var lists: [(spid: Int, paragraphs: Int)] = []
         let ground = groundColour(of: boxes, canvas: canvas, design: design)
         for box in boxes {
             id += 1
@@ -258,6 +314,9 @@ public enum PPTX {
             case let .gradient(stops, angle):
                 shapes += gradient(id: id, box: box, stops: stops, angle: angle)
             case let .text(runs, align, anchor):
+                if builds, !runs.isEmpty, runs.allSatisfy({ $0.marker != .none }) {
+                    lists.append((spid: id, paragraphs: runs.count))
+                }
                 shapes += textBox(id: id, box: box, runs: runs, align: align,
                                   anchor: anchor, design: design, links: links)
             case let .slideNumber(number, size, colour):
@@ -265,11 +324,15 @@ public enum PPTX {
                                            size: size, colour: colour, face: design.bodyFont)
             case let .table(rows, header):
                 shapes += table(id: id, box: box, rows: rows, header: header, design: design)
-            case let .picture(path):
-                guard media[path] != nil else { continue }
+            case .chart:
+                guard chartIndex < charts.count else { continue }
+                shapes += chartFrame(id: id, box: box, relationship: charts[chartIndex])
+                chartIndex += 1
+            case let .picture(path, fit):
+                guard media[mediaKey(box)] != nil else { continue }
                 pictureRel += 1
                 shapes += picture(id: id, box: box, relationship: "rId\(pictureRel)",
-                                  size: sizes[path])
+                                  size: sizes[path], fit: fit)
             }
         }
         return """
@@ -281,12 +344,14 @@ public enum PPTX {
             <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/>\
             <a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>\
             \(shapes)</p:spTree></p:cSld>\
-            <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>
+            <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>\
+            \(Timing.transition(transition))\(builds ? Timing.builds(lists) : "")</p:sld>
             """
     }
 
     static func slideRels(_ pictures: [(rel: String, name: String)],
                           links: [(rel: String, target: String)] = [],
+                          charts: [(rel: String, number: Int)] = [],
                           notesSlide: Int? = nil,
                           layout: Int = 4) -> String {
         var rels = ["<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout\(layout).xml\"/>"]
@@ -297,6 +362,9 @@ public enum PPTX {
             /// External, so PowerPoint opens it rather than looking for a
             /// part inside the file.
             rels.append("<Relationship Id=\"\(link.rel)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" Target=\"\(escape(link.target))\" TargetMode=\"External\"/>")
+        }
+        for chart in charts {
+            rels.append("<Relationship Id=\"\(chart.rel)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"../charts/chart\(chart.number).xml\"/>")
         }
         if let notesSlide {
             /// The slide points at its notes as well as the other way round.
@@ -585,6 +653,18 @@ public enum PPTX {
         """
     }
 
+    /// The frame a chart part is drawn in.
+    private static func chartFrame(id: Int, box: Box, relationship: String) -> String {
+        """
+        <p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="\(id)" name="chart\(id)"/>\
+        <p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>\
+        <p:xfrm><a:off x="\(box.x)" y="\(box.y)"/><a:ext cx="\(box.width)" cy="\(box.height)"/></p:xfrm>\
+        <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">\
+        <c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="\(relationship)"/>\
+        </a:graphicData></a:graphic></p:graphicFrame>
+        """
+    }
+
     /// A picture, at its own proportions.
     ///
     /// `stretch` fills the frame it is given, so the frame is cut down to
@@ -592,13 +672,33 @@ public enum PPTX {
     /// Given the box itself, a 1:3 portrait arrived as a 3:1 landscape —
     /// every diagram squashed, every photograph made fat, silently.
     private static func picture(id: Int, box: Box, relationship: String,
-                                size: (width: Int, height: Int)?) -> String {
-        let frame = size.map { ImageSize.fit(width: $0.width, height: $0.height, in: box) }
-            ?? (x: box.x, y: box.y, width: box.width, height: box.height)
+                                size: (width: Int, height: Int)?, fit: Box.Fit = .contain) -> String {
+        var frame = (x: box.x, y: box.y, width: box.width, height: box.height)
+        var crop = ""
+        if let size {
+            switch fit {
+            case .contain, .leading, .top:
+                let fitted = ImageSize.fit(width: size.width, height: size.height, in: box)
+                frame = fitted
+                /// Against an edge rather than centred: a logo hugs the
+                /// margin, a picture beside text starts on the text's line.
+                if fit == .leading { frame.x = box.x }
+                if fit == .top { frame.y = box.y }
+            case .cover:
+                /// The picture fills the box and the excess is cropped away
+                /// with `srcRect`, in thousandths of a percent per edge.
+                let scale = max(Double(box.width) / Double(size.width), Double(box.height) / Double(size.height))
+                let visibleWidth = Double(box.width) / scale / Double(size.width)
+                let visibleHeight = Double(box.height) / scale / Double(size.height)
+                let left = Int((1 - visibleWidth) / 2 * 100_000)
+                let top = Int((1 - visibleHeight) / 2 * 100_000)
+                crop = "<a:srcRect l=\"\(left)\" t=\"\(top)\" r=\"\(left)\" b=\"\(top)\"/>"
+            }
+        }
         return """
         <p:pic><p:nvPicPr><p:cNvPr id="\(id)" name="picture\(id)"/>\
         <p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>\
-        <p:blipFill><a:blip r:embed="\(relationship)"/>\
+        <p:blipFill><a:blip r:embed="\(relationship)"/>\(crop)\
         <a:stretch><a:fillRect/></a:stretch></p:blipFill>\
         <p:spPr><a:xfrm><a:off x="\(frame.x)" y="\(frame.y)"/><a:ext cx="\(frame.width)" cy="\(frame.height)"/></a:xfrm>\
         <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>

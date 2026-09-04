@@ -57,7 +57,7 @@ public enum Check {
         var found: [Problem] = []
 
         for (index, slide) in deck.slides.enumerated() {
-            for box in layout.boxes(for: slide, kicker: deck.kickers[index]) {
+            for box in layout.boxes(for: slide, context: deck.context(for: index)) {
                 guard case let .text(runs, _, _) = box.content, !runs.isEmpty else { continue }
                 let needed = height(of: runs, inWidth: box.width, design: design)
                 let available = Double(box.height)

@@ -36,13 +36,60 @@ four.
 1. a numbered point                  - an indented sub-point
 **bold**  *italic*  `code`         [label](https://…)
 ??? presenter notes                --- an explicit break
-^ a kicker, above a heading
+^ a kicker, above a heading        [agenda]  the sections, listed
+[chart bar] over a table           bar, column, line, pie, doughnut, area
+![](photo.jpg) among points        a picture beside them — the side it was written
+![](photo.jpg) under a #           a full-bleed cover, darkened to read over
+logo: mark.png   footer: text      transition: fade   build: yes
 ```
 
 Small on purpose: an author should hold it in their head. Headings, statements,
 quotes and pictures each begin a slide, so nothing needs a separator — and
 **nothing the author wrote is ever dropped**, which a test asserts word by
 word.
+
+## The business half
+
+Added after the audit, each measured the same way:
+
+- **Logo and footer.** `logo:` puts a mark bottom-left of every slide, at its
+  own proportions; `footer:` a line beside it on content slides, on the slide
+  number's row so the foot of the deck is one row.
+- **A picture beside points** (`split`): written before the points it sits
+  on the left, after them on the right, top-aligned with the list, caption
+  directly under it. **A cover**: a picture under a `#` fills the slide,
+  cropped with `srcRect` rather than stretched, and **darkened in its pixels**
+  (`Darken`, CoreGraphics) rather than under a translucent shape — which
+  would leak in Quick Look.
+- **Agenda.** `[agenda]` lists the sections, numbered; and once a deck has
+  one, every divider carries the section list on its right with the current
+  one marked.
+- **Charts.** `[chart column]` over a table makes a native chart — bar,
+  column, line, pie, doughnut, area — with the first column as categories
+  and every other column a series. Written the way PowerPoint writes one:
+  cached references into an **embedded workbook** (a real one-sheet `.xlsx`
+  in `ppt/embeddings/`), which is what makes Edit Data work and, measured,
+  what Quick Look draws — it left a literal-data chart blank, and the schema
+  agrees a series name cannot be a `strLit`. Series colours come from the
+  accent turned round the hue wheel (`chartColours` in a design overrides),
+  text names the body face, gridlines composite over the ground. Two
+  Quick Look limits, documented rather than fought: it draws a pie in one
+  colour, and a hairline frame round every chart. LibreOffice, PowerPoint
+  and python-pptx see the real thing.
+- **Transitions and builds.** `transition: fade` (or `push`, `wipe`) and
+  `build: yes` — lists appear one point per click, the timing tree
+  PowerPoint itself writes for that choice. **Validated, not seen:** Quick
+  Look and a PDF render a still frame, so these are checked against the
+  schema and by a LibreOffice round-trip, which re-exported every click,
+  target and paragraph range. That is the honest limit from this machine.
+- **A PDF twin** (`PDF.render`, `deck make --pdf`, `deck pdf`) through
+  LibreOffice, from the written file. **Headless LibreOffice on macOS
+  resolves none of the system fonts by itself** — every face fell to
+  Liberation or a serif — because headless it uses fontconfig, not CoreText,
+  and its fontconfig knows only the fonts it ships. Handed a configuration
+  naming the system font folders it embeds Avenir Next, Menlo, Futura,
+  Impact; the cache and profile persist under `~/Library/Caches/deck` so the
+  second run is quick.
 
 ## Verified against the specification
 
@@ -232,7 +279,7 @@ they differed, it reported a problem the layout did not have.
 
 ## Tested
 
-111 tests: the grammar keeping every word, a quote's attribution staying with
+127 tests: the grammar keeping every word, a quote's attribution staying with
 its quote, a picture keeping the heading above it, the heading landing in the
 same place on every slide shape, nothing placed outside the canvas, the same
 deck writing byte-identical output, and `&`/`<` escaped while typographic

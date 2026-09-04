@@ -41,16 +41,23 @@ public enum Preview {
         defer { try? FileManager.default.removeItem(at: work) }
 
         var rendered: [URL] = []
+        let sizes = images.compactMapValues(ImageSize.of)
         for (index, slide) in deck.slides.enumerated() {
+            /// A one-slide copy, given the WHOLE deck's context — its
+            /// sections, its logo, its footer — or a divider would list one
+            /// section and the agenda none.
             let single = Deck(title: deck.title, slides: [slide],
-                              kickers: deck.kickers[index].map { [0: $0] } ?? [:])
+                              kickers: deck.kickers[index].map { [0: $0] } ?? [:],
+                              logo: deck.logo, footer: deck.footer,
+                              transition: deck.transition, builds: deck.builds)
+            let context = deck.context(for: index, imageSizes: sizes)
             let file = work.appendingPathComponent(String(format: "%03d.pptx", index + 1))
             /// The real slide number, not 1. Each preview is a one-slide
             /// copy, so without this every rendered page showed "1" while
             /// the deck itself was numbered correctly — a preview that
             /// disagrees with the file is worse than none.
             try PPTX.data(deck: single, design: design, canvas: canvas,
-                          images: images, firstSlideNumber: index + 1)
+                          images: images, firstSlideNumber: index + 1, contexts: [context])
                 .write(to: file, options: .atomic)
 
             try quickLook(file, width: width, into: work)

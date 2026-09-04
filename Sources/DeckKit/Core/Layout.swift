@@ -16,13 +16,26 @@ public struct Box: Sendable, Equatable {
         case panel(Panel)
         /// A gradient ground, which is what a flat colour used to be.
         case gradient([Stop], angle: Double)
-        case picture(String)
+        case picture(String, fit: Fit = .contain)
         /// A real table, editable in PowerPoint rather than a picture of one.
         case table(rows: [[String]], header: Bool)
+        /// A native chart, editable in PowerPoint rather than a picture of one.
+        case chart(kind: ChartKind, rows: [[String]], header: Bool)
         /// The slide's own number, as a field rather than a typed digit.
         case slideNumber(Int, size: Double, colour: String)
     }
     public enum Align: String, Sendable { case left, centre, right }
+    /// How a picture sits in a box that is not its shape.
+    public enum Fit: Sendable, Equatable {
+        /// Largest size that fits, centred.
+        case contain
+        /// Largest size that fits, against the left edge — a logo.
+        case leading
+        /// Largest size that fits, against the top edge — a picture beside text.
+        case top
+        /// Fills the box, cropped, and darkened by `dim` (0–1) — a cover.
+        case cover(dim: Double)
+    }
     public enum Anchor: String, Sendable { case top, middle, bottom }
 
     public let x: Int, y: Int, width: Int, height: Int
@@ -147,6 +160,32 @@ public struct Layout: Sendable {
         self.canvas = canvas
     }
 
+    /// What the layout needs to know about a slide beyond the slide itself:
+    /// its kicker, the deck's furniture, where it sits among the sections,
+    /// and how big its pictures are.
+    public struct Context: Sendable {
+        public var kicker: String?
+        public var logo: String?
+        public var footer: String?
+        public var sections: [String]
+        /// Which section this slide opens, when it is a divider.
+        public var sectionIndex: Int?
+        public var hasAgenda: Bool
+        public var imageSizes: [String: (width: Int, height: Int)]
+
+        public init(kicker: String? = nil, logo: String? = nil, footer: String? = nil,
+                    sections: [String] = [], sectionIndex: Int? = nil, hasAgenda: Bool = false,
+                    imageSizes: [String: (width: Int, height: Int)] = [:]) {
+            self.kicker = kicker
+            self.logo = logo
+            self.footer = footer
+            self.sections = sections
+            self.sectionIndex = sectionIndex
+            self.hasAgenda = hasAgenda
+            self.imageSizes = imageSizes
+        }
+    }
+
     private var margin: Int { canvas.across(design.margin) }
     private var contentWidth: Int { canvas.width - margin * 2 }
     /// The heading's box begins here on every slide that has one.
@@ -159,7 +198,7 @@ public struct Layout: Sendable {
     public func slideNumber(for slide: Slide, number: Int) -> Box? {
         guard design.slideNumbers else { return nil }
         switch slide {
-        case .title, .section: return nil
+        case .title, .section, .cover: return nil
         default: break
         }
         return Box(x: canvas.width - margin - canvas.across(0.08),
@@ -168,21 +207,89 @@ public struct Layout: Sendable {
                    content: .slideNumber(number, size: design.captionSize * 0.85, colour: design.body))
     }
 
+    /// The boxes for one slide, with only a kicker for context.
+    public func boxes(for slide: Slide, kicker: String?) -> [Box] {
+        boxes(for: slide, context: Context(kicker: kicker))
+    }
+
     /// The boxes for one slide.
-    ///
-    /// - Parameter kicker: the small label above the heading, if the author
-    ///   wrote one.
-    public func boxes(for slide: Slide, kicker: String? = nil) -> [Box] {
+    public func boxes(for slide: Slide, context: Context = Context()) -> [Box] {
+        content(for: slide, context: context) + furniture(for: slide, context: context)
+    }
+
+    private func content(for slide: Slide, context: Context) -> [Box] {
+        let kicker = context.kicker
         /// A gradient ground on ordinary slides as well, when the design asks
         /// for one — a modern deck is rarely flat white.
         let ordinary = ground(feature: false).map { [$0] } ?? []
         switch slide {
         case let .title(text, subtitle):
             return feature(text, size: design.titleSize, secondary: subtitle,
-                           kicker: kicker, isTitleSlide: true)
+                           kicker: kicker, isTitleSlide: true, context: context)
 
         case let .section(text, subtitle, _):
-            return feature(text, size: design.sectionSize, secondary: subtitle, kicker: kicker)
+            return feature(text, size: design.sectionSize, secondary: subtitle,
+                           kicker: kicker, context: context)
+
+        case let .cover(text, subtitle, image, first):
+            /// The photograph fills the slide, darkened in its pixels rather
+            /// than under a translucent shape, and the title sits where a
+            /// title slide's does.
+            return [Box(x: 0, y: 0, width: canvas.width, height: canvas.height,
+                        content: .picture(image, fit: .cover(dim: 0.55)))]
+                + feature(text, size: first ? design.titleSize : design.sectionSize,
+                          secondary: subtitle, kicker: kicker, isTitleSlide: first,
+                          withGround: false, context: context)
+
+        case let .agenda(heading):
+            /// The sections, numbered. An agenda with nothing to list says so
+            /// rather than leaving a heading over a blank.
+            let head = ordinary + self.heading(heading ?? "Agenda", kicker: kicker)
+            let items = context.sections.map { Bullet($0, level: 0, numbered: true) }
+            let runs = items.isEmpty
+                ? [Run("No sections yet", size: design.bodySize, colour: design.body)]
+                : list(items)
+            return head + [body(runs)]
+
+        case let .split(heading, items, image, caption, imageLeft, _):
+            let head = ordinary + self.heading(heading, kicker: kicker)
+            let gutter = canvas.across(0.04)
+            let imageWidth = Int(Double(contentWidth - gutter) * 0.44)
+            let listWidth = contentWidth - gutter - imageWidth
+            let top = bodyTop
+            let depth = canvas.height - top - canvas.down(0.12)
+            let imageX = imageLeft ? margin : margin + listWidth + gutter
+            let listX = imageLeft ? margin + imageWidth + gutter : margin
+            let captionRoom = caption == nil ? 0 : Canvas.points(design.lineHeight(design.captionSize) * 1.6)
+            /// The picture's box is cut to its proportions here when its size
+            /// is known, top-aligned beside the list, so the caption can sit
+            /// directly under it rather than at the bottom of a frame.
+            let frame = Box(x: imageX, y: top, width: imageWidth, height: depth - captionRoom,
+                            content: .picture(image, fit: .top))
+            let picture = context.imageSizes[image].map { size -> Box in
+                let fitted = ImageSize.fit(width: size.width, height: size.height, in: frame)
+                return Box(x: fitted.x, y: top, width: fitted.width, height: fitted.height,
+                           content: .picture(image, fit: .top))
+            } ?? frame
+            var boxes = head + [picture]
+            if let caption {
+                boxes.append(Box(x: imageX, y: picture.y + picture.height + Canvas.points(design.captionSize * 0.5),
+                                 width: imageWidth, height: captionRoom,
+                                 content: .text([Run(caption, size: design.captionSize, colour: design.body)],
+                                                align: .left, anchor: .top)))
+            }
+            /// Top-aligned with the picture, not floated: two things that
+            /// start on the same line read as one composition.
+            boxes.append(Box(x: listX, y: top, width: listWidth, height: depth,
+                             content: .text(list(items), align: .left, anchor: .top)))
+            return boxes
+
+        case let .chart(heading, kind, rows, header, _):
+            let head = ordinary + self.heading(heading, kicker: kicker)
+            let top = heading == nil ? canvas.down(0.16) : bodyTop
+            return head + [Box(x: margin, y: top, width: contentWidth,
+                               height: canvas.down(0.88) - top,
+                               content: .chart(kind: kind, rows: rows, header: header))]
 
         case let .points(heading, items, _):
             return ordinary + self.heading(heading, kicker: kicker) + [body(list(items))]
@@ -456,6 +563,37 @@ public struct Layout: Sendable {
         return boxes
     }
 
+    /// The logo, bottom left of every slide, and the footer line beside it
+    /// on content slides — on the slide number's line, so the foot of the
+    /// deck is one row.
+    private func furniture(for slide: Slide, context: Context) -> [Box] {
+        var boxes: [Box] = []
+        let row = canvas.height - canvas.down(0.075)
+        let height = canvas.down(0.045)
+        var x = margin
+        if let logo = context.logo {
+            let logoHeight = Int(Double(height) * 0.9)
+            let natural = context.imageSizes[logo].map {
+                Int(Double(logoHeight) * Double($0.width) / Double(max(1, $0.height)))
+            } ?? canvas.across(0.08)
+            let width = min(natural, canvas.across(0.16))
+            boxes.append(Box(x: x, y: row + (height - logoHeight) / 2, width: width, height: logoHeight,
+                             content: .picture(logo, fit: .leading)))
+            x += width + Canvas.points(design.bodySize * 0.8)
+        }
+        let isFeature: Bool
+        switch slide {
+        case .title, .section, .cover, .quote: isFeature = true
+        default: isFeature = false
+        }
+        if let footer = context.footer, !isFeature {
+            boxes.append(Box(x: x, y: row, width: canvas.width - margin - x - canvas.across(0.1), height: height,
+                             content: .text([Run(footer, size: design.captionSize * 0.85, colour: design.body)],
+                                            align: .left, anchor: .middle)))
+        }
+        return boxes
+    }
+
     /// The whole slide, as a gradient when the design has one.
     private func ground(feature: Bool) -> Box? {
         let stops = feature ? design.gradient : design.bodyGradient
@@ -478,10 +616,15 @@ public struct Layout: Sendable {
     /// "Title\nSubtitle" as the title, and the title moved whenever the
     /// subtitle wrapped.
     private func feature(_ text: String, size: Double, secondary: String?,
-                         kicker: String?, isTitleSlide: Bool = false) -> [Box] {
-        var boxes = [ground(feature: true)].compactMap { $0 }
+                         kicker: String?, isTitleSlide: Bool = false,
+                         withGround: Bool = true, context: Context = Context()) -> [Box] {
+        var boxes = withGround ? [ground(feature: true)].compactMap { $0 } : []
         let top = canvas.down(0.12)
         let baseline = canvas.down(secondary == nil ? 0.60 : 0.56)
+        /// On a divider of a deck that has an agenda, the sections are
+        /// listed on the right with this one marked — so a reader always
+        /// knows where they are. The subtitle narrows to make room.
+        let listed = !isTitleSlide && context.hasAgenda && context.sections.count > 1
         let run = Run(text, size: size, bold: design.headingBold, colour: design.featureHeading,
                       tracking: design.headingTracking, lineSpacing: design.lineSpacing,
                       face: .heading)
@@ -496,11 +639,24 @@ public struct Layout: Sendable {
             /// One step up from body. At body size the line under a 72pt
             /// title was a quarter of its height and read as a footnote.
             let y = baseline + Canvas.points(design.bodySize)
-            boxes.append(Box(x: margin, y: y, width: contentWidth, height: canvas.down(0.78) - y,
+            boxes.append(Box(x: margin, y: y, width: listed ? Int(Double(contentWidth) * 0.55) : contentWidth,
+                             height: canvas.down(0.78) - y,
                              content: .text([Run(secondary, size: design.size(1),
                                                  colour: design.featureBody)],
                                             align: .left, anchor: .top),
                              placeholder: isTitleSlide ? "subTitle" : "body"))
+        }
+        if listed {
+            let runs = context.sections.enumerated().map { index, section in
+                let current = index == context.sectionIndex
+                return Run(section, size: design.captionSize * 1.05, bold: current,
+                           colour: current ? design.featureHeading : design.featureBody,
+                           spaceBefore: index == 0 ? 0 : design.captionSize * 0.45,
+                           face: current ? .heading : .body)
+            }
+            boxes.append(Box(x: margin + Int(Double(contentWidth) * 0.62), y: baseline + Canvas.points(design.bodySize),
+                             width: Int(Double(contentWidth) * 0.38), height: canvas.down(0.30),
+                             content: .text(runs, align: .left, anchor: .top)))
         }
         if design.rule {
             boxes.append(Box(x: margin, y: canvas.down(0.80), width: canvas.across(0.05),

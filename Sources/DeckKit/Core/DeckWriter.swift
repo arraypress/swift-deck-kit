@@ -20,8 +20,9 @@ public enum DeckWriter {
     /// should be is worse than a refusal.
     public static func images(for deck: Deck, relativeTo base: URL) throws -> [String: Data] {
         var found: [String: Data] = [:]
-        for slide in deck.slides {
-            guard case let .image(path, _, _) = slide else { continue }
+        /// The logo and every slide's picture — a cover, a split, a plain
+        /// image — through one door.
+        for path in deck.imagePaths {
             let url = path.hasPrefix("/")
                 ? URL(fileURLWithPath: path)
                 : base.appendingPathComponent(path)

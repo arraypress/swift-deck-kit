@@ -37,6 +37,37 @@ enum Colour {
                    parsed.map(\.b).reduce(0, +) / n)
     }
 
+    /// `hex` with its hue turned by `degrees`, saturation and brightness
+    /// kept — how a chart gets distinct series colours from one accent.
+    static func rotate(_ hex: String, by degrees: Double) -> String {
+        guard let c = rgb(hex) else { return hex }
+        let r = Double(c.r) / 255, g = Double(c.g) / 255, b = Double(c.b) / 255
+        let high = max(r, g, b), low = min(r, g, b), delta = high - low
+        var hue = 0.0
+        if delta > 0 {
+            if high == r { hue = ((g - b) / delta).truncatingRemainder(dividingBy: 6) }
+            else if high == g { hue = (b - r) / delta + 2 }
+            else { hue = (r - g) / delta + 4 }
+            hue *= 60
+            if hue < 0 { hue += 360 }
+        }
+        let saturation = high == 0 ? 0 : delta / high
+        hue = (hue + degrees).truncatingRemainder(dividingBy: 360)
+        if hue < 0 { hue += 360 }
+        let x = high * saturation * (1 - abs((hue / 60).truncatingRemainder(dividingBy: 2) - 1))
+        let m = high - high * saturation
+        let (r1, g1, b1): (Double, Double, Double)
+        switch Int(hue / 60) {
+        case 0: (r1, g1, b1) = (high * saturation, x, 0)
+        case 1: (r1, g1, b1) = (x, high * saturation, 0)
+        case 2: (r1, g1, b1) = (0, high * saturation, x)
+        case 3: (r1, g1, b1) = (0, x, high * saturation)
+        case 4: (r1, g1, b1) = (x, 0, high * saturation)
+        default: (r1, g1, b1) = (high * saturation, 0, x)
+        }
+        return self.hex(Int(((r1 + m) * 255).rounded()), Int(((g1 + m) * 255).rounded()), Int(((b1 + m) * 255).rounded()))
+    }
+
     static func rgb(_ hex: String) -> (r: Int, g: Int, b: Int)? {
         let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
         guard digits.count == 6, let value = Int(digits, radix: 16) else { return nil }

@@ -20,8 +20,9 @@ enum Layouts {
     static func number(for slide: Slide) -> Int {
         switch slide {
         case .title: return 1
+        case let .cover(_, _, _, first): return first ? 1 : 2
         case .section: return 2
-        case .points, .prose, .columns: return 3
+        case .points, .prose, .columns, .split, .agenda: return 3
         default: return 4
         }
     }

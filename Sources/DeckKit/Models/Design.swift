@@ -28,7 +28,7 @@ public struct Design: Codable, Sendable, Equatable {
                 card: Panel? = nil, headingTracking: Double = 0,
                 kickerTracking: Double = 1.2, lineSpacing: Double = 1,
                 kickerPill: Panel? = nil, kickerColour: String? = nil,
-                slideNumbers: Bool = false) {
+                slideNumbers: Bool = false, chartColours: [String]? = nil) {
         self.name = name
         self.description = description
         self.background = background
@@ -60,6 +60,7 @@ public struct Design: Codable, Sendable, Equatable {
         self.kickerPill = kickerPill
         self.kickerColour = kickerColour ?? accent
         self.slideNumbers = slideNumbers
+        self.chartColours = chartColours
     }
 
     /// Decoded with defaults, so a design written before the modern keys
@@ -100,6 +101,7 @@ public struct Design: Codable, Sendable, Equatable {
         kickerPill = try box.decodeIfPresent(Panel.self, forKey: .kickerPill)
         kickerColour = try value(.kickerColour, accent)
         slideNumbers = try value(.slideNumbers, false)
+        chartColours = try box.decodeIfPresent([String].self, forKey: .chartColours)
     }
 
 
@@ -174,6 +176,16 @@ public struct Design: Codable, Sendable, Equatable {
     public var kickerColour: String
     /// Whether ordinary slides carry their number.
     public var slideNumbers: Bool
+    /// Series colours for charts, or nil to turn them from the accent.
+    public var chartColours: [String]?
+
+    /// The colours a chart's series take, in order: the design's own list,
+    /// or the accent turned round the hue wheel in steps wide enough to
+    /// tell apart.
+    public var chartPalette: [String] {
+        if let chartColours, !chartColours.isEmpty { return chartColours }
+        return [0, 150, 60, 210, 300, 30, 120, 270].map { Colour.rotate(accent, by: Double($0)) }
+    }
 
     // MARK: The scale
 

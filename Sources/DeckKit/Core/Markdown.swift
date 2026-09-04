@@ -21,6 +21,10 @@ import Foundation
 /// ![](picture.png)
 /// ??? presenter notes
 /// ^ a kicker, above a heading
+/// [agenda]              the sections, listed
+/// [chart bar]           the table below it, as a chart
+/// logo: mark.png        footer: Acme · 2026
+/// transition: fade      build: yes
 /// ---
 /// ```
 ///
@@ -33,14 +37,45 @@ public enum Markdown {
         var slides: [Slide] = []
         var kickers: [Int: String] = [:]
         var title: String?
+        let (body, directives) = self.directives(in: text)
 
-        for block in blocks(in: text) {
+        for block in blocks(in: body) {
             guard let slide = self.slide(from: block, isFirst: slides.isEmpty) else { continue }
             if case let .title(text, _) = slide, title == nil { title = text }
+            if case let .cover(text, _, _, true) = slide, title == nil { title = text }
             if let kicker = kicker(in: block) { kickers[slides.count] = kicker }
             slides.append(slide)
         }
-        return Deck(title: title, slides: slides, kickers: kickers)
+        return Deck(title: title, slides: slides, kickers: kickers,
+                    logo: directives["logo"], footer: directives["footer"],
+                    transition: directives["transition"].flatMap { Transition(rawValue: $0.lowercased()) } ?? .none,
+                    builds: directives["build"].map { ["yes", "true", "on", "1"].contains($0.lowercased()) } ?? false)
+    }
+
+    /// The deck-wide keys an author writes as `key: value` on a line of their
+    /// own, and the text with those lines removed.
+    ///
+    /// Known keys only, so a sentence that happens to start with a word and
+    /// a colon stays prose.
+    static let directiveKeys = ["logo", "footer", "transition", "build"]
+
+    static func directives(in text: String) -> (String, [String: String]) {
+        var found: [String: String] = [:]
+        var kept: [String] = []
+        for raw in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            let line = String(raw)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let colon = trimmed.firstIndex(of: ":") {
+                let key = trimmed[..<colon].lowercased()
+                if directiveKeys.contains(key) {
+                    let value = trimmed[trimmed.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                    if !value.isEmpty { found[key] = value }
+                    continue
+                }
+            }
+            kept.append(line)
+        }
+        return (kept.joined(separator: "\n"), found)
     }
 
     /// Splits on `---` **and** on any heading, so an author who never types a
@@ -71,15 +106,30 @@ public enum Markdown {
             /// thing a converter must never do.
             let continuingQuote = trimmed.hasPrefix(">")
                 && current.contains { $0.trimmingCharacters(in: .whitespaces).hasPrefix(">") }
-            /// A picture written straight under a heading belongs to that
-            /// heading's slide — splitting there threw the heading away, and
-            /// a captioned diagram with no title is not what the author
-            /// typed. Anything else in the block, and the picture gets a
-            /// slide of its own.
-            let underOnlyAHeading = trimmed.hasPrefix("![")
+            /// A picture written under a heading, or among points, belongs
+            /// to that slide: with the heading alone it is a captioned
+            /// picture, with points it sits beside them, and under a `#` it
+            /// is the cover. Splitting there threw the heading away, and a
+            /// captioned diagram with no title is not what the author typed.
+            /// After prose, a quote or a table it gets a slide of its own.
+            let amongHeadingAndPoints = trimmed.hasPrefix("![")
                 && current.allSatisfy { line in
                     let text = line.trimmingCharacters(in: .whitespaces)
-                    return text.isEmpty || text.hasPrefix("#")
+                    return text.isEmpty || text.hasPrefix("#") || text.hasPrefix("^ ")
+                        || text.hasPrefix("???") || bullet(line) != nil
+                }
+            /// Under a `#` with its one line of subtitle, a picture is the
+            /// cover — the subtitle is prose, and the rule above would have
+            /// sent the photograph to a slide of its own.
+            let underATitle = trimmed.hasPrefix("![")
+                && current.contains { line in
+                    let text = line.trimmingCharacters(in: .whitespaces)
+                    return text.hasPrefix("#") && !text.hasPrefix("##")
+                }
+                && current.allSatisfy { line in
+                    let text = line.trimmingCharacters(in: .whitespaces)
+                    return text.isEmpty || text.hasPrefix("#") || text.hasPrefix("^ ")
+                        || text.hasPrefix("???") || !starts(text)
                 }
             /// A kicker is written ABOVE its heading, so the heading that
             /// follows one must not start a new block — it did, and the
@@ -90,7 +140,7 @@ public enum Markdown {
                     return text.isEmpty || text.hasPrefix("^ ")
                 }
             if starts(trimmed), !current.isEmpty, !isAttribution(trimmed),
-               !continuingQuote, !underOnlyAHeading, !underOnlyAKicker { flush() }
+               !continuingQuote, !amongHeadingAndPoints, !underATitle, !underOnlyAKicker { flush() }
             current.append(line)
         }
         flush()
@@ -152,6 +202,14 @@ public enum Markdown {
             .map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
+    /// `[agenda]`, `[chart bar]` — a bracketed word that names a shape.
+    static func bracketed(_ line: String) -> [String]? {
+        guard line.hasPrefix("["), line.hasSuffix("]"), !line.hasPrefix("[[") else { return nil }
+        let words = line.dropFirst().dropLast().split(separator: " ").map(String.init)
+        guard let first = words.first, ["agenda", "chart"].contains(first.lowercased()) else { return nil }
+        return words
+    }
+
     /// Whether a line begins a new slide.
     static func starts(_ line: String) -> Bool {
         line.hasPrefix("#") || line.hasPrefix(">") || line.hasPrefix("![")
@@ -188,7 +246,10 @@ public enum Markdown {
         var statement: String?
         var attribution: String?
         var image: (path: String, caption: String?)?
+        var imageBeforePoints = false
         var notes: [String] = []
+        var agenda = false
+        var chart: ChartKind?
 
         for raw in block {
             let line = raw.trimmingCharacters(in: .whitespaces)
@@ -211,6 +272,12 @@ public enum Markdown {
                 if let open = line.firstIndex(of: "("), let close = line.lastIndex(of: ")"), open < close {
                     image = (String(line[line.index(after: open)..<close]),
                              caption.isEmpty ? nil : String(caption))
+                    imageBeforePoints = points.isEmpty && rightPoints.isEmpty
+                }
+            } else if let words = bracketed(line) {
+                switch words[0].lowercased() {
+                case "agenda": agenda = true
+                default: chart = words.dropFirst().first.flatMap(ChartKind.init(word:)) ?? .column
                 }
             } else if line.hasPrefix(">") {
                 quote.append(line.dropFirst().trimmingCharacters(in: .whitespaces))
@@ -263,6 +330,13 @@ public enum Markdown {
         let note = notes.isEmpty ? nil : notes.joined(separator: " ")
 
         if let image {
+            if let heading, !points.isEmpty, rightPoints.isEmpty {
+                return .split(heading, items: points, image: image.path, caption: image.caption,
+                              imageLeft: imageBeforePoints, note: note)
+            }
+            if let heading, level == 1 {
+                return .cover(heading, subtitle: image.caption ?? prose.first, image: image.path, first: isFirst)
+            }
             return .image(image.path, caption: image.caption, heading: heading)
         }
         if !quote.isEmpty {
@@ -271,9 +345,13 @@ public enum Markdown {
         if let statement {
             return .statement(statement, attribution: attribution ?? prose.first)
         }
+        if agenda { return .agenda(heading) }
         /// Before the heading guard: a stat or a card block is a slide in its
         /// own right, and checking after it meant `= 91` on a line by itself
         /// produced no slide at all.
+        if let chart, !tableRows.isEmpty {
+            return .chart(heading, kind: chart, rows: tableRows, header: tableHasHeader, note: note)
+        }
         if !tableRows.isEmpty { return .table(heading, rows: tableRows, header: tableHasHeader) }
         if !figures.isEmpty { return .stat(heading, figures: figures, note: note) }
         if !panels.isEmpty { return .cards(heading, panels: panels, note: note) }
