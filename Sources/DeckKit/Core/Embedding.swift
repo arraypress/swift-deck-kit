@@ -46,7 +46,7 @@ public enum Embedding {
     /// The bundled faces, or nothing if the resources are missing.
     public static func bundled() -> [(face: Face, data: Data)] {
         Face.allCases.compactMap { face in
-            guard let url = Bundle.module.url(forResource: face.fileName, withExtension: "ttf"),
+            guard let url = Resources.bundle.url(forResource: face.fileName, withExtension: "ttf"),
                   let data = try? Data(contentsOf: url) else { return nil }
             return (face, data)
         }

@@ -12,7 +12,7 @@ public enum Designs {
 
     /// Every design that ships, by name.
     public static let all: [Design] = {
-        guard let urls = Bundle.module.urls(forResourcesWithExtension: "json", subdirectory: nil) else {
+        guard let urls = Resources.bundle.urls(forResourcesWithExtension: "json", subdirectory: nil) else {
             return [.fallback]
         }
         let decoder = JSONDecoder()
