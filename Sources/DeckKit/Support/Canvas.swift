@@ -1,5 +1,5 @@
 //
-//  EMU.swift
+//  Canvas.swift
 //  DeckKit
 //
 //  OOXML measures in English Metric Units: 914,400 to the inch.
@@ -13,7 +13,9 @@ public struct Canvas: Sendable, Equatable {
     /// 914,400 EMU to the inch — the unit every OOXML coordinate is in.
     public static let perInch = 914_400.0
 
+    /// Slide width in EMU.
     public let width: Int
+    /// Slide height in EMU.
     public let height: Int
 
     /// 13⅓ × 7½ inches, which is what 16:9 means in PowerPoint.

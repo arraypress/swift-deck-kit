@@ -5,131 +5,9 @@
 //  Where everything goes — one rhythm, applied to every slide shape.
 //
 
+//
+
 import Foundation
-
-/// A positioned box of text or colour.
-public struct Box: Sendable, Equatable {
-    public enum Content: Sendable, Equatable {
-        case text([Run], align: Align, anchor: Anchor)
-        case fill(String)
-        /// A rounded, possibly translucent and shadowed card.
-        case panel(Panel)
-        /// A gradient ground, which is what a flat colour used to be.
-        case gradient([Stop], angle: Double)
-        case picture(String, fit: Fit = .contain)
-        /// A real table, editable in PowerPoint rather than a picture of one.
-        case table(rows: [[String]], header: Bool)
-        /// A chart: native and editable, or drawn and placed as a picture.
-        case chart(kind: ChartKind, rows: [[String]], header: Bool, native: Bool)
-        /// The slide's own number, as a field rather than a typed digit.
-        case slideNumber(Int, size: Double, colour: String)
-    }
-    public enum Align: String, Sendable { case left, centre, right }
-    /// How a picture sits in a box that is not its shape.
-    public enum Fit: Sendable, Equatable {
-        /// Largest size that fits, centred.
-        case contain
-        /// Largest size that fits, against the left edge — a logo.
-        case leading
-        /// Largest size that fits, against the top edge — a picture beside text.
-        case top
-        /// Fills the box, cropped, and darkened by `dim` (0–1) — a cover.
-        case cover(dim: Double)
-    }
-    public enum Anchor: String, Sendable { case top, middle, bottom }
-
-    public let x: Int, y: Int, width: Int, height: Int
-    public let content: Content
-    /// The placeholder this box fills, if any.
-    ///
-    /// A slide's title has to sit in a `title` placeholder or the outline
-    /// pane shows nothing — the text is there, but PowerPoint has no idea
-    /// which of the boxes is the heading.
-    public var placeholder: String?
-
-    public init(x: Int, y: Int, width: Int, height: Int,
-                content: Content, placeholder: String? = nil) {
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
-        self.content = content
-        self.placeholder = placeholder
-    }
-}
-
-/// One styled paragraph.
-public struct Run: Sendable, Equatable {
-
-    /// The pieces of the line, each with its own marks.
-    ///
-    /// A paragraph used to be one string, so `**bold**` inside a bullet
-    /// reached the slide with its asterisks intact. OOXML models it the same
-    /// way — one `<a:p>` holding several `<a:r>`.
-    public let spans: [Span]
-
-    /// The whole line, unmarked. For measuring and for a manifest.
-    public var text: String { spans.map(\.text).joined() }
-    public let size: Double
-    public let bold: Bool
-    public let colour: String
-    /// Space before this line, in points.
-    public let spaceBefore: Double
-    /// Letter-spacing in points. Negative tightens large type, which is the
-    /// single change that most separates a modern heading from a dated one.
-    public let tracking: Double
-    /// Line spacing as a multiple, or nil for the font's own.
-    public let lineSpacing: Double?
-
-    /// The bullet or number this paragraph carries, and how deep it sits.
-    public let marker: Marker
-    public let level: Int
-
-    /// Which of the design's two faces sets this run.
-    ///
-    /// Named on the run because the writer names it on every `<a:r>`: a
-    /// face that lives only in the theme never reached a text box in Quick
-    /// Look, and every deck rendered in the viewer's fallback sans while the
-    /// design said Avenir Next.
-    public let face: Face
-
-    /// What sits in front of a paragraph.
-    public enum Marker: Sendable, Equatable {
-        case none
-        /// A literal character — a dash, a dot, whatever the design says.
-        case character(String)
-        /// 1. 2. 3., counted by PowerPoint so an inserted line renumbers.
-        case number
-    }
-
-    /// The design's heading face or its body face.
-    public enum Face: Sendable, Equatable { case body, heading }
-
-    public init(_ text: String, size: Double, bold: Bool = false,
-                colour: String, spaceBefore: Double = 0,
-                tracking: Double = 0, lineSpacing: Double? = nil,
-                marker: Marker = .none, level: Int = 0, face: Face = .body) {
-        self.init(Inline.spans(text), size: size, bold: bold, colour: colour,
-                  spaceBefore: spaceBefore, tracking: tracking,
-                  lineSpacing: lineSpacing, marker: marker, level: level, face: face)
-    }
-
-    public init(_ spans: [Span], size: Double, bold: Bool = false,
-                colour: String, spaceBefore: Double = 0,
-                tracking: Double = 0, lineSpacing: Double? = nil,
-                marker: Marker = .none, level: Int = 0, face: Face = .body) {
-        self.spans = spans
-        self.size = size
-        self.bold = bold
-        self.colour = colour
-        self.spaceBefore = spaceBefore
-        self.tracking = tracking
-        self.lineSpacing = lineSpacing
-        self.marker = marker
-        self.level = level
-        self.face = face
-    }
-}
 
 /// Turns a slide into boxes.
 ///
@@ -139,7 +17,9 @@ public struct Run: Sendable, Equatable {
 /// looks designed and one that looks assembled.
 public struct Layout: Sendable {
 
+    /// The design whose numbers every position comes from.
     public let design: Design
+    /// The slide size being laid out for.
     public let canvas: Canvas
 
     /// The least a hanging indent can be, in points. The real one is
@@ -164,13 +44,19 @@ public struct Layout: Sendable {
     /// its kicker, the deck's furniture, where it sits among the sections,
     /// and how big its pictures are.
     public struct Context: Sendable {
+        /// The small line above the heading, if the slide has one.
         public var kicker: String?
+        /// The deck's logo, placed on every slide.
         public var logo: String?
+        /// The line along the bottom of every slide.
         public var footer: String?
+        /// The section titles, in order, for the agenda and for progress.
         public var sections: [String]
         /// Which section this slide opens, when it is a divider.
         public var sectionIndex: Int?
+        /// Whether an agenda slide was generated, which shifts the numbering.
         public var hasAgenda: Bool
+        /// Pixel dimensions per image path, so a picture keeps its aspect ratio.
         public var imageSizes: [String: (width: Int, height: Int)]
 
         public init(kicker: String? = nil, logo: String? = nil, footer: String? = nil,

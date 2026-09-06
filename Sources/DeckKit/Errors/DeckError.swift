@@ -5,6 +5,7 @@
 
 import Foundation
 
+/// Why a deck could not be built or written.
 public enum DeckError: Error, LocalizedError, Equatable {
     case empty
     case noSuchDesign(String, available: [String])
@@ -16,6 +17,7 @@ public enum DeckError: Error, LocalizedError, Equatable {
     case noLibreOffice
     case pdfFailed(String)
 
+    /// A one-line reason, for a CLI or a log.
     public var errorDescription: String? {
         switch self {
         case .empty: return "the deck has no slides"

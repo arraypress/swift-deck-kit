@@ -5,20 +5,9 @@
 //  The modern vocabulary: gradients, rounded cards, soft shadows.
 //
 
+//
+
 import Foundation
-
-/// One stop in a gradient.
-public struct Stop: Codable, Sendable, Equatable {
-    /// `rrggbb`, no hash.
-    public let colour: String
-    /// 0–1 along the gradient.
-    public let position: Double
-
-    public init(colour: String, position: Double) {
-        self.colour = colour
-        self.position = position
-    }
-}
 
 /// A filled shape — flat, rounded, translucent or shadowed.
 ///
@@ -27,15 +16,19 @@ public struct Stop: Codable, Sendable, Equatable {
 /// corners, no depth and no transparency.
 public struct Panel: Codable, Sendable, Equatable {
 
+    /// Six-digit hex, no `#`.
     public var fill: String
     /// 0–1. Below 1 the card sits *on* the background rather than covering it.
     public var fillAlpha: Double
+    /// Six-digit hex, or nil for no border.
     public var border: String?
+    /// 0–1. Below 1 the border softens into the ground behind it.
     public var borderAlpha: Double
     /// In points. A hairline at 1 is what reads as modern; 3 reads as a box.
     public var borderWidth: Double
     /// 0–0.5 of the shorter side. PowerPoint's own adjust is a percentage.
     public var radius: Double
+    /// Whether the card casts a shadow — the cheapest way to give it depth.
     public var shadow: Bool
 
     public init(fill: String, fillAlpha: Double = 1, border: String? = nil,

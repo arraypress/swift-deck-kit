@@ -33,6 +33,10 @@ import Foundation
 /// and making them learn otherwise buys nothing.
 public enum Markdown {
 
+    /// Reads a Markdown document into a deck.
+    ///
+    /// Never throws: anything it cannot read becomes ordinary body text, because
+    /// half a deck is more useful than an error.
     public static func deck(from text: String) -> Deck {
         var slides: [Slide] = []
         var kickers: [Int: String] = [:]

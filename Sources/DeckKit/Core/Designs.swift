@@ -23,6 +23,7 @@ public enum Designs {
         return found.isEmpty ? [.fallback] : found.sorted { $0.name < $1.name }
     }()
 
+    /// Every built-in design name, for a listing or a `--design` error.
     public static var names: [String] { all.map(\.name) }
 
     /// One design by name, or the one at a path the caller wrote themselves.

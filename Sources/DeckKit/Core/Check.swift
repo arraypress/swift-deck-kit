@@ -22,6 +22,7 @@ public enum Check {
     public struct Problem: Sendable, Equatable {
         /// 1-based, as a person counts slides.
         public let slide: Int
+        /// Which kind of box overflowed — `title`, `body`, `caption`.
         public let kind: String
         /// What is wrong, in a sentence.
         public let message: String

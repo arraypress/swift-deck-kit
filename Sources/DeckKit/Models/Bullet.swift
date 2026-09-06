@@ -9,6 +9,7 @@ import Foundation
 
 /// One item in a list.
 public struct Bullet: Sendable, Equatable, ExpressibleByStringLiteral {
+    /// The line, with its Markdown marks still in it.
     public var text: String
     /// 0 for a top-level point, 1 for one indented under it.
     public var level: Int

@@ -105,7 +105,9 @@ public struct Design: Codable, Sendable, Equatable {
     }
 
 
+    /// The name a caller selects it by.
     public var name: String
+    /// One line, for a listing.
     public var description: String
 
     // MARK: Colour
@@ -127,7 +129,9 @@ public struct Design: Codable, Sendable, Equatable {
 
     // MARK: Type
 
+    /// The face headings are set in.
     public var headingFont: String
+    /// The face body text is set in.
     public var bodyFont: String
     /// Body size in points. Every other size comes from this.
     public var base: Double
@@ -135,6 +139,7 @@ public struct Design: Codable, Sendable, Equatable {
     public var ratio: Double
     /// Extra leading as a multiple of the size.
     public var leading: Double
+    /// Whether headings are bold.
     public var headingBold: Bool
 
     // MARK: Rhythm
@@ -204,6 +209,7 @@ public struct Design: Codable, Sendable, Equatable {
 
     /// Named steps, so a layout reads as intent rather than arithmetic.
     public var titleSize: Double { size(5) }
+    /// A section divider, one step below the title.
     public var sectionSize: Double { size(4) }
     /// Two steps, not three. At three the heading was more than twice the
     /// body and dominated every slide it was on.
@@ -212,7 +218,9 @@ public struct Design: Codable, Sendable, Equatable {
     /// in the deck after the title — it was set at heading size, which made
     /// the slide meant to be remembered look like an ordinary one.
     public var statementSize: Double { size(4) }
+    /// Body text — the size every other size is derived from.
     public var bodySize: Double { size(0) }
+    /// A caption, one step below body.
     public var captionSize: Double { size(-1) }
 
     /// The height one line occupies, in points.
@@ -227,6 +235,7 @@ public struct Design: Codable, Sendable, Equatable {
         size * (1 + leading * 0.6) * lineSpacing
     }
 
+    /// The design used when none is named, or when a named one is missing.
     public static let fallback = Design(
         name: "plain", description: "Black on white, one accent.",
         background: "FFFFFF", featureBackground: "111111",
