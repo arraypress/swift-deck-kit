@@ -678,7 +678,7 @@ final class ResourceTests: XCTestCase {
 
     func testTheDesignsAreFoundThroughTheResourceBundle() throws {
         // Six bundled designs and four faces: the bundle resolved.
-        XCTAssertGreaterThanOrEqual(Designs.all.count, 6)
+        XCTAssertGreaterThanOrEqual(try Designs.all().count, 6)
         XCTAssertEqual(Embedding.bundled().count, 4)
         XCTAssertTrue(Resources.bundle.bundlePath.hasSuffix("DeckKit_DeckKit.bundle"))
     }

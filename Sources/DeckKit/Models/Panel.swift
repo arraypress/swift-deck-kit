@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import RecipeKit
 
 /// A filled shape — flat, rounded, translucent or shadowed.
 ///
@@ -41,6 +42,22 @@ public struct Panel: Codable, Sendable, Equatable {
         self.borderWidth = borderWidth
         self.radius = radius
         self.shadow = shadow
+    }
+
+    /// Read as the synthesised decoder would — every field but `border`
+    /// required — refusing a key a panel does not have.
+    public init(from decoder: Decoder) throws {
+        try decoder.refuseUnknownKeys(CodingKeys.self, noun: "design")
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(fill: try box.decode(String.self, forKey: .fill), fillAlpha: try box.decode(Double.self, forKey: .fillAlpha),
+                  border: try box.decodeIfPresent(String.self, forKey: .border),
+                  borderAlpha: try box.decode(Double.self, forKey: .borderAlpha),
+                  borderWidth: try box.decode(Double.self, forKey: .borderWidth),
+                  radius: try box.decode(Double.self, forKey: .radius), shadow: try box.decode(Bool.self, forKey: .shadow))
+    }
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case fill, fillAlpha, border, borderAlpha, borderWidth, radius, shadow
     }
 
     /// A plain rectangle of one colour.

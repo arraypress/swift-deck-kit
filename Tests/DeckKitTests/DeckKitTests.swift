@@ -127,10 +127,10 @@ final class DesignTests: XCTestCase {
         XCTAssertGreaterThan(design.titleSize, design.statementSize)
     }
 
-    func testEveryBundledDesignLoads() {
-        XCTAssertGreaterThanOrEqual(Designs.all.count, 4)
+    func testEveryBundledDesignLoads() throws {
+        XCTAssertGreaterThanOrEqual(try Designs.all().count, 4)
         XCTAssertTrue(Designs.names.contains("studio"))
-        for design in Designs.all {
+        for design in try Designs.all() {
             XCTAssertFalse(design.name.isEmpty)
             XCTAssertEqual(design.background.count, 6, "\(design.name): colours are bare rrggbb")
             XCTAssertGreaterThan(design.base, 8, design.name)
@@ -215,7 +215,7 @@ final class CheckTests: XCTestCase {
         XCTAssertGreaterThan(problems.first?.overflow ?? 0, 1.5)
     }
 
-    func testTheCheckerAgreesWithTheLayout() {
+    func testTheCheckerAgreesWithTheLayout() throws {
         // They share one line-height formula on purpose: when they differed,
         // the checker reported a problem the layout did not have — a two-line
         // heading that fitted fine because its box grows upward.
@@ -228,7 +228,7 @@ final class CheckTests: XCTestCase {
             - two
             - three
             """)
-        for design in Designs.all {
+        for design in try Designs.all() {
             XCTAssertTrue(Check.problems(in: deck, design: design).isEmpty,
                           "\(design.name) reported a problem on a deck that fits")
         }
@@ -384,7 +384,7 @@ final class ModernDesignTests: XCTestCase {
             - one
             - two
             """)
-        for design in Designs.all {
+        for design in try Designs.all() {
             XCTAssertTrue(Check.problems(in: deck, design: design).isEmpty,
                           "\(design.name) overflows on an ordinary deck")
         }

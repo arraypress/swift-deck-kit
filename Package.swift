@@ -6,8 +6,13 @@ let package = Package(
     name: "DeckKit",
     platforms: [.macOS(.v14)],
     products: [.library(name: "DeckKit", targets: ["DeckKit"])],
+    dependencies: [
+        // Strict reading: a key a design does not have is refused, by name.
+        .package(url: "https://github.com/arraypress/swift-recipe-kit.git", from: "0.3.0"),
+    ],
     targets: [
-        .target(name: "DeckKit", resources: [.process("Resources")]),
+        .target(name: "DeckKit", dependencies: [.product(name: "RecipeKit", package: "swift-recipe-kit")],
+                resources: [.process("Resources")]),
         .testTarget(name: "DeckKitTests", dependencies: ["DeckKit"]),
     ]
 )

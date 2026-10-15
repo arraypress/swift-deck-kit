@@ -18,6 +18,27 @@ Six designs. Two modern — `aurora` (dark) and `daylight` (light), with
 gradient grounds, translucent rounded cards and tight display type — and four
 restrained: `studio`, `mono`, `warm`, `slate`. Or your own JSON.
 
+## Designs, read strictly
+
+```swift
+let mine = try Designs.named("mine.json")                          // a file of your own
+let violet = try Designs.named("studio", vars: ["accent": "7C6BF6", "typeface": "Futura"])
+let json = try Designs.blueprint("aurora")                         // a design's JSON, to start from
+Designs.catalogueProblems                                          // [] — asserted by the tests
+```
+
+A key a design does not have is refused with its path and the one it was
+probably meant to be — `card.shdow is not a design field — did you mean
+card.shadow?` — and a wrong type is named by its path, as
+`DeckError.badDesign`. A bundled design that will not read is an error that
+says which and why, never dropped from the list (and `Designs.all()` throws
+rather than falling back to a plain design when the resources are missing).
+
+Vars fill a design's slots before it is read, so a kicker that follows the
+accent follows a new one: `accent` (hex, `#` optional), `typeface` (the
+family for headings and body), `heading-font`, `body-font`. A name it does
+not take is refused with "did you mean".
+
 ## Why a .pptx and not a PDF
 
 `press` in this fleet already sets Markdown as a designed PDF. Nobody can edit

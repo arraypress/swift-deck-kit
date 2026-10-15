@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import RecipeKit
 
 /// How a deck looks.
 ///
@@ -66,6 +67,7 @@ public struct Design: Codable, Sendable, Equatable {
     /// Decoded with defaults, so a design written before the modern keys
     /// existed still loads — the four restrained designs predate them.
     public init(from decoder: Decoder) throws {
+        try decoder.refuseUnknownKeys(CodingKeys.self, noun: "design")
         let box = try decoder.container(keyedBy: CodingKeys.self)
         func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) throws -> T {
             try box.decodeIfPresent(T.self, forKey: key) ?? fallback
@@ -104,6 +106,14 @@ public struct Design: Codable, Sendable, Equatable {
         chartColours = try box.decodeIfPresent([String].self, forKey: .chartColours)
     }
 
+
+    /// The keys a design file may hold.
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case name, description, background, featureBackground, heading, body, featureBody, featureHeading, accent
+        case headingFont, bodyFont, base, ratio, leading, headingBold, margin, headingTop, gap, rule, bullet
+        case gradient, bodyGradient, gradientAngle, cornerRadius, card, headingTracking, kickerTracking
+        case lineSpacing, kickerPill, kickerColour, slideNumbers, chartColours
+    }
 
     /// The name a caller selects it by.
     public var name: String

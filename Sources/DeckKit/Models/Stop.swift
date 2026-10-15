@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import RecipeKit
 
 /// One stop in a gradient.
 public struct Stop: Codable, Sendable, Equatable {
@@ -20,4 +21,13 @@ public struct Stop: Codable, Sendable, Equatable {
         self.colour = colour
         self.position = position
     }
+
+    /// Both fields required; a key a stop does not have is refused.
+    public init(from decoder: Decoder) throws {
+        try decoder.refuseUnknownKeys(CodingKeys.self, noun: "design")
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(colour: try box.decode(String.self, forKey: .colour), position: try box.decode(Double.self, forKey: .position))
+    }
+
+    enum CodingKeys: String, CodingKey, CaseIterable { case colour, position }
 }

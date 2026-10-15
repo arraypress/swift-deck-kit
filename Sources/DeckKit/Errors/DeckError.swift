@@ -9,6 +9,10 @@ import Foundation
 public enum DeckError: Error, LocalizedError, Equatable {
     case empty
     case noSuchDesign(String, available: [String])
+    /// A design that is there but will not read: which, and why.
+    case badDesign(String, reason: String)
+    /// A `--var` the design cannot take, or a value it cannot be.
+    case badVar(String)
     case missingImage(String)
     case unsupportedImage(String)
     case cannotWrite(String)
@@ -23,6 +27,8 @@ public enum DeckError: Error, LocalizedError, Equatable {
         case .empty: return "the deck has no slides"
         case let .noSuchDesign(name, available):
             return "no design called \(name) — there is \(available.joined(separator: ", "))"
+        case let .badDesign(name, reason): return "\(name) is not a design: \(reason)"
+        case let .badVar(reason): return reason
         case let .missingImage(path): return "no image at \(path)"
         case let .unsupportedImage(path):
             return "\(((path as NSString).pathExtension)) is not an image PowerPoint reads — use png, jpg or gif"
